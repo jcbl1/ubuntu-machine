@@ -1,0 +1,33 @@
+# ubuntu-machine
+
+基于 Ubuntu 24.04 的 systemd 容器基础镜像（sshd、systemd 已配置），内置构建期插件系统，用于安装自定义软件、完成自定义设置。
+
+## 构建
+
+```bash
+docker build -t local/ubuntu-machine .
+```
+
+## 插件
+
+```
+plugins/
+├── bin/run-plugins        # 执行器（构建时按文件名顺序执行 enabled 插件）
+├── available/             # 所有插件
+└── enabled/               # 仅放软链接，启用 = ln -s，禁用 = rm
+```
+
+启用 / 禁用（类似 nginx 的 sites-enabled）：
+
+```bash
+ln -s ../available/050-my-plugin plugins/enabled/050-my-plugin   # 启用
+rm plugins/enabled/050-my-plugin                                 # 禁用
+```
+
+约定：
+
+- 纯 bash 脚本，按文件名字典序执行，用数字前缀（`010-`、`020-`）控制顺序
+- 自包含：需要软件包时自己 `apt-get update`，结束前自己 `apt-get clean && rm -rf /var/lib/apt/lists/*`
+- 构建以只读方式挂载插件目录（`/opt/plugins`），脚本请勿写入该目录，临时文件用 `/tmp`
+- 执行器注入 `PLUGIN_NAME`、`DEBIAN_FRONTEND=noninteractive`；任一插件失败即中止构建
+- `plugins/enabled/` 内容不入库（`.gitkeep` 除外），可参考 `plugins/available/010-example`
