@@ -1,0 +1,97 @@
+name: docker-build-push
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse base image from Dockerfile
+        id: base
+        run: |
+          from_line=$(grep -im1 -E '^FROM[[:space:]]' Dockerfile)
+          base=$(awk '{for (i = 2; i <= NF; i++) if ($i !~ /^--/) {print $i; exit}}' <<<"$from_line")
+          repo=${base%%:*}
+          tag=${base#*:}
+          if [ "$tag" = "$base" ]; then
+            tag=latest
+          fi
+          case "$repo" in
+            */*) hub_repo="$repo" ;;
+            *)   hub_repo="library/$repo" ;;
+          esac
+          {
+            echo "ref=$base"
+            echo "hub_repo=$hub_repo"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve tags from base image digest
+        id: tags
+        env:
+          IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          HUB_REPO: ${{ steps.base.outputs.hub_repo }}
+          BASE_TAG: ${{ steps.base.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$IMAGE" ]; then
+            echo "::error::Repository variable DOCKERHUB_IMAGE is not set"
+            exit 1
+          fi
+          digest=""
+          if resp=$(curl -fsSL "https://hub.docker.com/v2/repositories/${HUB_REPO}/tags/${BASE_TAG}"); then
+            digest=$(jq -r '.digest // empty' <<<"$resp")
+          fi
+          if [ -z "$digest" ]; then
+            echo "::warning::Could not resolve digest of ${HUB_REPO}:${BASE_TAG}, falling back to tag '${BASE_TAG}'"
+          fi
+          tags_file=$(mktemp)
+          page="https://hub.docker.com/v2/repositories/${HUB_REPO}/tags?page_size=100"
+          while [ -n "$page" ]; do
+            if ! resp=$(curl -fsSL "$page"); then
+              echo "::warning::Docker Hub API request failed, using tags collected so far"
+              break
+            fi
+            jq -r --arg d "$digest" '.results[]? | select(.digest == $d) | .name' <<<"$resp" >> "$tags_file"
+            page=$(jq -r '.next // empty' <<<"$resp")
+          done
+          if [ ! -s "$tags_file" ]; then
+            echo "$BASE_TAG" > "$tags_file"
+          fi
+          sort -u "$tags_file" | sed "s|^|${IMAGE}:|" > "${tags_file}.full"
+          {
+            echo "tags<<EOF"
+            cat "${tags_file}.full"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
