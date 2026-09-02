@@ -1,0 +1,26 @@
+#!/bin/bash
+# 020-codex - install OpenAI Codex CLI (latest) via the official install script
+#
+# Contract:
+#   - plain bash script, executed with "bash" in lexicographic filename order
+#   - self-contained: no extra apt packages needed (curl is in the base image)
+#   - do not write into the plugin directory (read-only mount), use /tmp instead
+#
+# Enable with: ln -s ../available/020-codex plugins/enabled/020-codex
+#
+# Env knobs:
+#   CODEX_INSTALL_DIR     binary install dir (default /usr/local/bin so it is on PATH)
+#   CODEX_RELEASE         version to install (default latest)
+
+set -euo pipefail
+
+install_dir="${CODEX_INSTALL_DIR:-/usr/local/bin}"
+export CODEX_NON_INTERACTIVE=1
+export CODEX_INSTALL_DIR="$install_dir"
+
+# /home may not exist or HOME may be unset during docker build
+export HOME="${HOME:-/root}"
+
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+
+"$install_dir/codex" --version
