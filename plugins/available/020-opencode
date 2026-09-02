@@ -1,0 +1,21 @@
+#!/bin/bash
+# 020-opencode - install opencode (https://opencode.ai) system-wide
+#
+# Uses the official installer, which detects the right build for the
+# platform (linux-x64 / linux-arm64, incl. baseline variants) and needs
+# only curl + tar (already present, no apt packages required).
+#
+# Enable with:  ln -s ../available/020-opencode plugins/enabled/020-opencode
+
+set -euo pipefail
+
+# Pin a version here (e.g. "1.0.180"), or leave empty for the latest release.
+OPENCODE_VERSION=""
+
+curl -fsSL https://opencode.ai/install | VERSION="$OPENCODE_VERSION" bash -s -- --no-modify-path
+
+# Relocate for all users (installer defaults to $HOME/.opencode/bin, root only)
+install -m 755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode
+rm -rf "$HOME/.opencode"
+
+opencode --version
