@@ -1,0 +1,69 @@
+#!/bin/bash
+# run-plugins - execute enabled plugin scripts (nginx sites-enabled style)
+#
+# Usage: run-plugins [PLUGINS_ENABLED_DIR]
+#
+# Plugins live in plugins/available/, enabling a plugin means creating a
+# symlink in plugins/enabled/ (like Debian's nginx sites-available/sites-enabled).
+#
+#   ln -s ../available/050-my-plugin plugins/enabled/050-my-plugin  # enable
+#   rm plugins/enabled/050-my-plugin                                # disable
+#
+# Enabled scripts are executed with bash in lexicographic filename order,
+# so numeric prefixes (010-, 020-, ...) control ordering.
+#
+# Plugin contract:
+#   - plain bash script, must handle its own failures (runner uses set -e)
+#   - self-contained: run "apt-get update" itself if needed, and clean up
+#     afterwards ("apt-get clean && rm -rf /var/lib/apt/lists/*")
+#   - do NOT write into the plugin directory (it is mounted read-only);
+#     use /tmp for scratch files
+# Environment provided to each plugin:
+#   PLUGIN_NAME          basename of the plugin script
+#   DEBIAN_FRONTEND      noninteractive
+
+set -euo pipefail
+
+enabled_dir="${1:-/opt/plugins/enabled}"
+
+if [[ ! -d "$enabled_dir" ]]; then
+  echo "run-plugins: directory not found: $enabled_dir" >&2
+  exit 1
+fi
+
+shopt -s nullglob
+plugins=("$enabled_dir"/*)
+shopt -u nullglob
+
+if [[ ${#plugins[@]} -eq 0 ]]; then
+  echo "run-plugins: no plugins enabled in $enabled_dir, skipping"
+  exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+
+failed=0
+for plugin in "${plugins[@]}"; do
+  name="$(basename "$plugin")"
+
+  if [[ -L "$plugin" && ! -e "$plugin" ]]; then
+    echo "run-plugins: broken symlink, aborting: $plugin" >&2
+    exit 1
+  fi
+  if [[ ! -f "$plugin" ]]; then
+    echo "run-plugins: not a regular file, aborting: $plugin" >&2
+    exit 1
+  fi
+
+  echo ">>> run-plugins: [$name] start"
+  if PLUGIN_NAME="$name" bash "$plugin"; then
+    echo ">>> run-plugins: [$name] done"
+  else
+    status=$?
+    echo ">>> run-plugins: [$name] failed (exit $status)" >&2
+    failed=1
+    break
+  fi
+done
+
+exit "$failed"

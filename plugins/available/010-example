@@ -1,0 +1,27 @@
+#!/bin/bash
+# 010-example - sample plugin: install a package and apply custom settings
+#
+# Write your own plugin by following this contract:
+#   - plain bash script, executed with "bash" in lexicographic filename order
+#     (use numeric prefixes 010-, 020-, ... to control ordering)
+#   - enable it with:  ln -s ../available/050-my-plugin plugins/enabled/050-my-plugin
+#   - self-contained: run "apt-get update" if you need packages, and clean up
+#     when done ("apt-get clean && rm -rf /var/lib/apt/lists/*")
+#   - non-interactive: DEBIAN_FRONTEND=noninteractive and PLUGIN_NAME are exported
+#     by the runner; apt commands must not prompt
+#   - do not write into the plugin directory (read-only mount), use /tmp instead
+
+set -euo pipefail
+
+apt-get update
+apt-get install -y --no-install-recommends htop
+
+# custom settings: show a hint in motd
+cat >/etc/motd <<EOF
+
+Welcome to $(hostname) (built with plugin: ${PLUGIN_NAME:-010-example})
+Try: htop
+EOF
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*

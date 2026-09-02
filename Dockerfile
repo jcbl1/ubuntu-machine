@@ -23,3 +23,10 @@ RUN systemctl disable \
       networkd-dispatcher.service
 
 RUN sed -i -e 's/^AcceptEnv LANG LC_\*$/#AcceptEnv LANG LC_*/' /etc/ssh/sshd_config
+
+# Plugins: scripts in plugins/enabled/ run at build time.
+# Enable a plugin with: ln -s ../available/<name> plugins/enabled/<name>
+COPY plugins/bin/run-plugins /usr/local/sbin/run-plugins
+
+RUN --mount=type=bind,source=plugins,target=/opt/plugins,readonly \
+    /usr/local/sbin/run-plugins /opt/plugins/enabled
