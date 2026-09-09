@@ -1,0 +1,87 @@
+#!/bin/bash
+# 050-tmux - tmux 配置 + tpm + 插件无头安装
+#
+# 部署 ~/.tmux.conf（与既有容器逐字一致）、克隆 tpm，并按 conf 里声明的
+# @plugin 无头安装：tmux-sensible、catppuccin/tmux、o0th/tmux-nova、
+# tmux-plugins/tmux-resurrect。
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "050-tmux: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
+
+# ---- tpm ----
+if [[ ! -d "$TARGET_HOME/.tmux/plugins/tpm" ]]; then
+  as_user git clone https://github.com/tmux-plugins/tpm "$TARGET_HOME/.tmux/plugins/tpm"
+else
+  echo "050-tmux: tpm 已存在，跳过克隆"
+fi
+
+# ---- ~/.tmux.conf ----
+cat > "$TARGET_HOME/.tmux.conf" <<'TMUXCONF'
+set-option -sa terminal-overrides ",xterm*:Tc"
+set -g mouse on
+
+# Open panes in current directory
+bind '"' split-window -v -c "#{pane_current_path}"
+bind % split-window -h -c "#{pane_current_path}"
+
+
+# List of plugins
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'tmux-plugins/tmux-sensible'
+# set -g @plugin 'odedlaz/tmux-onedark-theme'
+set -g @plugin 'catppuccin/tmux'
+# set -g @plugin 'dracula/tmux'
+set -g @plugin 'o0th/tmux-nova'
+set -g @plugin 'tmux-plugins/tmux-resurrect'
+
+# set -g @nova-pane-active-border-style "#44475a"
+# set -g @nova-pane-border-style "#282a36"
+# set -g @nova-status-style-bg "#4c566a"
+# set -g @nova-status-style-fg "#d8dee9"
+# set -g @nova-status-style-active-bg "#89c0d0"
+# set -g @nova-status-style-active-fg "#2e3540"
+# set -g @nova-status-style-double-bg "#2d3540"
+
+# set -g @nova-segment-mode "#{?client_prefix,Ω,ω}"
+# set -g @nova-segment-mode-colors "#78a2c1 #2e3440"
+
+# set -g @nova-segment-whoami "#(whoami)@#h"
+# set -g @nova-segment-whoami-colors "#78a2c1 #2e3440"
+
+set -g @nova-rows 0
+set -g @nova-segments-0-left "mode"
+set -g @nova-segments-0-right "whoami"
+
+# Other examples:
+# set -g @plugin 'github_username/plugin_name'
+# set -g @plugin 'github_username/plugin_name#branch'
+# set -g @plugin 'git@github.com:user/plugin'
+# set -g @plugin 'git@bitbucket.com:user/plugin'
+
+# Initialize TMUX plugin manager (keep this line at the very bottom of tmux.conf)
+run '~/.tmux/plugins/tpm/tpm'
+TMUXCONF
+chown "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.tmux.conf"
+
+# ---- 无头安装 conf 里声明的插件（tpm，纯 bash+git，无需 tmux server）----
+TPM="$TARGET_HOME/.tmux/plugins/tpm"
+if [[ -x "$TPM/bin/install_plugins" ]]; then
+  as_user "$TPM/bin/install_plugins"
+elif [[ -x "$TPM/scripts/install_plugins.sh" ]]; then
+  as_user "$TPM/scripts/install_plugins.sh"
+else
+  echo "050-tmux: 未找到 tpm 安装脚本，跳过插件安装" >&2
+fi
+
+chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.tmux"
+echo "050-tmux: 完成（用户 $TARGET_USER）"

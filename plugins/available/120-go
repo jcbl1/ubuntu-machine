@@ -1,0 +1,15 @@
+#!/bin/bash
+# 120-go - golang-go（apt，Ubuntu 24.04 = go1.22）
+#
+# 仅安装 Go 工具链；$HOME/go/bin 已在 all-in-one.zsh 的 PATH 中，
+# go install 的工具按需自行安装。
+#
+# 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends golang-go
+apt-get clean
+rm -rf /var/lib/apt/lists/*

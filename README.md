@@ -44,3 +44,4 @@ sudo bash plugins/bin/run-plugins --dry-run          # 只预览
 
 - 执行器注入 `TARGET_USER`（默认 `SUDO_USER`）与 `PLUGIN_ROOT`；插件要求幂等，
   且在无目标用户（构建期）时自动跳过用户级部分，因此 `enabled/` 可构建/运行共用
+- 私密内容放 `plugins/private/`（不入库），由 `080-private` 落位

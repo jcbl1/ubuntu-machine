@@ -1,2 +1,3 @@
 plugins/enabled/*
 !plugins/enabled/.gitkeep
+plugins/private/

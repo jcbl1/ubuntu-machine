@@ -1,0 +1,26 @@
+#!/bin/bash
+# 100-nvm - nvm（用户级 Node 版本管理器）
+#
+# 仅安装并配置 nvm 本身（~/.nvm，init 行由 installer 写入缺省的 rc 文件；
+# 若已启用 040-zsh，.zshrc 中的 nvm 段已存在，installer 会自动跳过不重复添加）。
+# Node 具体版本由使用者按需安装：nvm install --lts / nvm install 22。
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "100-nvm: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
+
+if [[ ! -d "$TARGET_HOME/.nvm" ]]; then
+  as_user bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'
+else
+  echo "100-nvm: nvm 已存在，跳过安装"
+fi
+
+echo "100-nvm: 完成（用户 $TARGET_USER；装 Node 版本: nvm install 22 之类按需执行）"

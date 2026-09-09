@@ -1,0 +1,67 @@
+#!/bin/bash
+# 090-opencode - opencode 配置（认证不入库，留给 `opencode auth login`）
+#
+# 部署 ~/.config/opencode/opencode.jsonc 与 opencode-notifier.json（逐字一致）。
+# notifier 插件（@mohak34/opencode-notifier）由 opencode 依据 jsonc 的
+# "plugin" 字段自动安装，无需在此处理。
+# 二进制缺失时回退官方安装脚本（用户级 ~/.opencode/bin，--no-modify-path，
+# PATH 由 040-zsh 的 .zshrc 负责）。
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "090-opencode: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
+
+install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  "$TARGET_HOME/.config" "$TARGET_HOME/.config/opencode"
+
+# ---- opencode.jsonc ----
+cat > "$TARGET_HOME/.config/opencode/opencode.jsonc" <<'OCJSONC'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "tools": {
+    "websearch": true
+  },
+  "permission": {
+    "bash": "allow",
+    "webfetch": "allow",
+    "websearch": "allow"
+  },
+  "plugin": ["@mohak34/opencode-notifier@latest"]
+}
+OCJSONC
+
+# ---- opencode-notifier.json ----
+cat > "$TARGET_HOME/.config/opencode/opencode-notifier.json" <<'OCNOTIFIER'
+{
+  "sound": true,
+  "notification": true,
+  "notificationSystem": "ghostty",
+  "bell": false,
+  "suppressWhenFocused": false,
+  "showProjectName": true,
+  "timeout": 5
+}
+OCNOTIFIER
+
+chown "$TARGET_USER:$TARGET_GROUP" \
+  "$TARGET_HOME/.config/opencode/opencode.jsonc" \
+  "$TARGET_HOME/.config/opencode/opencode-notifier.json"
+
+# ---- 二进制兜底（镜像已含 /usr/local/bin/opencode 时自动跳过）----
+if ! command -v opencode >/dev/null 2>&1 && [[ ! -x "$TARGET_HOME/.opencode/bin/opencode" ]]; then
+  echo "090-opencode: 未检测到 opencode，安装用户级二进制"
+  as_user bash -c 'curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path'
+else
+  echo "090-opencode: opencode 二进制已存在，跳过安装"
+fi
+
+echo "090-opencode: 完成（用户 $TARGET_USER；认证请手动执行: opencode auth login）"

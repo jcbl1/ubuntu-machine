@@ -1,0 +1,29 @@
+#!/bin/bash
+# 130-tauri-deps - Tauri / GUI 交叉编译依赖（apt，体积几百 MB）
+#
+# 与既有容器手工安装的集合一致：Linux GUI 编译（gtk/webkit）、
+# Windows 交叉（mingw）、图标/测试工具（imagemagick、xvfb、xdotool）。
+# 仅做 Tauri/Rust 桌面开发时才需要，默认不建议启用。
+#
+# 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends \
+  build-essential pkg-config file \
+  libssl-dev \
+  libgtk-3-dev \
+  libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libxdo-dev \
+  libxkbcommon-dev \
+  gcc-mingw-w64-x86-64 \
+  binutils-mingw-w64-x86-64 \
+  imagemagick \
+  x11-apps xdotool xvfb \
+  mesa-vulkan-drivers
+apt-get clean
+rm -rf /var/lib/apt/lists/*

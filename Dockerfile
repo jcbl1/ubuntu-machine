@@ -24,6 +24,9 @@ RUN systemctl disable \
 
 RUN sed -i -e 's/^AcceptEnv LANG LC_\*$/#AcceptEnv LANG LC_*/' /etc/ssh/sshd_config
 
+# 移除基础镜像自带的 ubuntu 用户，避免构建期 run-plugins 误选它作为 TARGET_USER
+RUN userdel -r ubuntu
+
 # Plugins: scripts in plugins/enabled/ run at build time.
 # Enable a plugin with: ln -s ../available/<name> plugins/enabled/<name>
 COPY plugins/bin/run-plugins /usr/local/sbin/run-plugins

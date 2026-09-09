@@ -1,0 +1,50 @@
+#!/bin/bash
+# 110-rust - rustup + tauri-cli（网络重、编译慢：tauri-cli 约 10-30 分钟）
+#
+# rustup 用户级（~/.rustup + ~/.cargo），默认工具链 stable；
+# cargo 环境由 040-zsh 的 ~/.zshenv 加载。
+#
+# 可用环境变量：
+#   INSTALL_TAURI_CLI   1 = 安装 tauri-cli（默认 1；设 0 跳过漫长编译）
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "110-rust: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
+
+INSTALL_TAURI_CLI="${INSTALL_TAURI_CLI:-1}"
+
+# ---- rustup ----
+if [[ ! -d "$TARGET_HOME/.rustup" ]]; then
+  as_user bash -c 'curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
+else
+  echo "110-rust: rustup 已存在，跳过安装"
+fi
+
+# ---- tauri-cli ----
+if [[ "$INSTALL_TAURI_CLI" == "1" ]]; then
+  if [[ ! -x "$TARGET_HOME/.cargo/bin/cargo-tauri" ]]; then
+    if ! command -v cc >/dev/null 2>&1; then
+      echo "110-rust: 安装 C 工具链（编译 tauri-cli 需要 linker）"
+      apt-get update
+      apt-get install -y --no-install-recommends build-essential
+      apt-get clean
+      rm -rf /var/lib/apt/lists/*
+    fi
+    echo "110-rust: 开始编译 tauri-cli（10-30 分钟，视机器而定）"
+    as_user bash -lc 'source "$HOME/.cargo/env" && cargo install --locked tauri-cli'
+  else
+    echo "110-rust: tauri-cli 已存在，跳过编译"
+  fi
+else
+  echo "110-rust: INSTALL_TAURI_CLI=0，跳过 tauri-cli"
+fi
+
+echo "110-rust: 完成（用户 $TARGET_USER）"

@@ -1,0 +1,343 @@
+#!/bin/bash
+# 140-container-tidy - 容器周期性垃圾清理（systemd timer + 脚本，共 8 个文件）
+#
+# 从既有容器固化的手工部署：每周日 06:30 + 开机 15 分钟清理
+# /tmp 产物、journald、apt 缓存、用户级缓存。详细文档随包部署到
+# /usr/share/doc/container-tidy/README.md。
+#
+# 用户级清理的运行身份取 TARGET_USER（run-plugins 注入；解析不到则回落 jcbl1）。
+# systemctl 相关操作仅在 systemd 运行时执行（构建期跳过）。
+# 构建期/运行期均可执行（除 enable 外均为纯 root 文件操作）。
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+TIDY_USER="${TARGET_USER:-jcbl1}"
+
+# ============================================================
+# 1/8  /usr/local/bin/container-tidy-root.sh
+# ============================================================
+cat > /usr/local/bin/container-tidy-root.sh <<'TIDY_ROOT_SH'
+#!/usr/bin/env bash
+# container-tidy-root.sh — root 级清理（由 container-tidy-root.service 以 root 运行）
+# 清理对象：/tmp/systemd-private-* 残留目录（>STALE_PRIVATE_AGE_DAYS 天，来自已结束
+#           的会话）、journald vacuum（阈值 JOURNAL_VACUUM_SIZE/AGE）、apt 缓存
+#           （APT_CLEAN；不清 /var/lib/apt/lists，清了拖慢下次 apt）。
+# 配置：/etc/default/container-tidy    文档：/usr/share/doc/container-tidy/README.md
+set -u
+
+TAG="container-tidy-root"
+CONF="/etc/default/container-tidy"
+[ -r "$CONF" ] && . "$CONF"
+
+STALE_PRIVATE_AGE_DAYS="${STALE_PRIVATE_AGE_DAYS:-7}"
+JOURNAL_VACUUM_SIZE="${JOURNAL_VACUUM_SIZE:-50M}"
+JOURNAL_VACUUM_AGE="${JOURNAL_VACUUM_AGE:-14d}"
+APT_CLEAN="${APT_CLEAN:-yes}"
+DRY_RUN="${DRY_RUN:-0}"
+
+log() {
+  echo "$*"
+  logger -t "$TAG" "$*"
+}
+
+if [ "$DRY_RUN" != "1" ]; then
+  n=0
+  while IFS= read -r -d '' d; do
+    rm -rf -- "$d"
+    n=$((n + 1))
+  done < <(find /tmp -maxdepth 1 -type d -name 'systemd-private-*' -mtime +"$STALE_PRIVATE_AGE_DAYS" -print0 2>/dev/null)
+  log "removed $n stale systemd-private dir(s)"
+else
+  n=$(find /tmp -maxdepth 1 -type d -name 'systemd-private-*' -mtime +"$STALE_PRIVATE_AGE_DAYS" 2>/dev/null | wc -l)
+  log "DRY_RUN: would remove $n stale systemd-private dir(s)"
+fi
+
+if [ "$DRY_RUN" != "1" ]; then
+  out="$(journalctl --vacuum-size="$JOURNAL_VACUUM_SIZE" --vacuum-time="$JOURNAL_VACUUM_AGE" 2>&1 | tail -1)"
+  log "journal vacuum: $out"
+else
+  log "DRY_RUN: would run journalctl --vacuum-size=$JOURNAL_VACUUM_SIZE --vacuum-time=$JOURNAL_VACUUM_AGE"
+fi
+
+if [ "$APT_CLEAN" = "yes" ]; then
+  if [ "$DRY_RUN" != "1" ]; then
+    before="$(du -sb /var/cache/apt 2>/dev/null | awk '{print $1}')"
+    before="${before:-0}"
+    apt-get clean -qq >/dev/null 2>&1 || true
+    after="$(du -sb /var/cache/apt 2>/dev/null | awk '{print $1}')"
+    after="${after:-0}"
+    log "apt cache freed $(( (before - after) / 1024 )) KiB"
+  else
+    log "DRY_RUN: would run apt-get clean"
+  fi
+fi
+TIDY_ROOT_SH
+chmod 755 /usr/local/bin/container-tidy-root.sh
+
+# ============================================================
+# 2/8  /usr/local/bin/container-tidy-user.sh
+# ============================================================
+cat > /usr/local/bin/container-tidy-user.sh <<'TIDY_USER_SH'
+#!/usr/bin/env bash
+# container-tidy-user.sh — 用户级清理（由 container-tidy-user.service 以 jcbl1 运行）
+# 清理对象：/tmp 遗留 .so 产物（>TMP_AGE_DAYS 天）、/tmp/opencode 陈旧子项
+#           （>PROJECT_TMP_AGE_DAYS 天）、~/.cache 下 USER_CACHES 列出的缓存目录。
+# 安全边界：只删属于当前用户的对象；年龄门槛保护当前会话在用的产物。
+#           /Users（宿主机绑定）、opencode 会话库等永不触碰，详见文档。
+# 配置：/etc/default/container-tidy    文档：/usr/share/doc/container-tidy/README.md
+set -u
+
+TAG="container-tidy-user"
+CONF="/etc/default/container-tidy"
+[ -r "$CONF" ] && . "$CONF"
+
+TMP_AGE_DAYS="${TMP_AGE_DAYS:-1}"
+PROJECT_TMP_AGE_DAYS="${PROJECT_TMP_AGE_DAYS:-7}"
+USER_CACHES="${USER_CACHES:-pip go-build node}"
+DRY_RUN="${DRY_RUN:-0}"
+
+OWNER="$(id -un)"
+HOMEDIR="$(getent passwd "$(id -u)" | cut -d: -f6)"
+[ -n "$HOMEDIR" ] || HOMEDIR="${HOME:-/home/$OWNER}"
+
+log() {
+  echo "$*"
+  logger -t "$TAG" "$*"
+}
+
+LIST="$(mktemp /tmp/container-tidy-user.XXXXXX)"
+trap 'rm -f "$LIST"' EXIT
+
+find /tmp -maxdepth 1 -type f -user "$OWNER" -name '.*.so' -mtime +"$TMP_AGE_DAYS" -print0 2>/dev/null >>"$LIST"
+
+if [ -d /tmp/opencode ]; then
+  find /tmp/opencode -mindepth 1 -maxdepth 1 -user "$OWNER" -mtime +"$PROJECT_TMP_AGE_DAYS" -print0 2>/dev/null >>"$LIST"
+fi
+
+for d in $USER_CACHES; do
+  [ -d "$HOMEDIR/.cache/$d" ] && printf '%s\0' "$HOMEDIR/.cache/$d" >>"$LIST"
+done
+
+count=0
+bytes=0
+while IFS= read -r -d '' f; do
+  sz="$(du -sb --apparent-size -- "$f" 2>/dev/null | awk '{print $1}')"
+  sz="${sz:-0}"
+  bytes=$((bytes + sz))
+  count=$((count + 1))
+done <"$LIST"
+
+if [ "$count" -eq 0 ]; then
+  log "nothing to clean"
+  exit 0
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+  log "DRY_RUN: would delete $count item(s), $bytes bytes"
+  exit 0
+fi
+
+while IFS= read -r -d '' f; do
+  rm -rf -- "$f"
+done <"$LIST"
+
+log "deleted $count item(s), freed $bytes bytes"
+TIDY_USER_SH
+chmod 755 /usr/local/bin/container-tidy-user.sh
+
+# ============================================================
+# 3/8  /etc/systemd/system/container-tidy.timer
+# ============================================================
+cat > /etc/systemd/system/container-tidy.timer <<'TIDY_TIMER'
+# container-tidy.timer — 容器周期性垃圾清理调度器
+# 用途：每周日 06:30(+随机延迟) 与每次开机 15 分钟后触发 container-tidy.target，
+#       清理 /tmp 临时产物、journald、apt 缓存与用户级缓存。
+# 配置：/etc/default/container-tidy    日志：sudo journalctl -t container-tidy-*
+# 文档：/usr/share/doc/container-tidy/README.md
+[Unit]
+Description=Run container-tidy weekly and shortly after boot
+Documentation=file:/usr/share/doc/container-tidy/README.md
+
+[Timer]
+OnCalendar=Sun *-*-* 06:30:00
+OnBootSec=15min
+Persistent=true
+RandomizedDelaySec=5min
+Unit=container-tidy.target
+
+[Install]
+WantedBy=timers.target
+TIDY_TIMER
+
+# ============================================================
+# 4/8  /etc/systemd/system/container-tidy.target
+# ============================================================
+cat > /etc/systemd/system/container-tidy.target <<'TIDY_TARGET'
+# container-tidy.target — 聚合目标，由 container-tidy.timer 触发，
+# 同时拉起用户级与 root 级两个清理 service（二者清理对象不相交，可并行）。
+# 文档：/usr/share/doc/container-tidy/README.md
+[Unit]
+Description=Weekly container tidy (aggregate user + root cleanup)
+Documentation=file:/usr/share/doc/container-tidy/README.md
+Wants=container-tidy-user.service container-tidy-root.service
+TIDY_TARGET
+
+# ============================================================
+# 5/8  /etc/systemd/system/container-tidy-user.service
+#      （__TIDY_USER__ 占位符 -> $TIDY_USER）
+# ============================================================
+cat > /tmp/container-tidy-user.service <<'TIDY_USER_UNIT'
+# container-tidy-user.service — 用户级清理（最小权限：以 __TIDY_USER__ 身份运行）。
+# 清理 /tmp 遗留 .so 产物、/tmp/opencode 陈旧子项、~/.cache/{pip,go-build,node}。
+# 注意：不可加 PrivateTmp（会打到隔离 /tmp）或 ProtectHome=read-only（挡删缓存）。
+# 文档：/usr/share/doc/container-tidy/README.md
+[Unit]
+Description=container-tidy user-level cleanup (__TIDY_USER__)
+Documentation=file:/usr/share/doc/container-tidy/README.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=__TIDY_USER__
+EnvironmentFile=/etc/default/container-tidy
+ExecStart=/usr/local/bin/container-tidy-user.sh
+NoNewPrivileges=true
+Nice=19
+IOSchedulingClass=idle
+TIDY_USER_UNIT
+sed -i "s/__TIDY_USER__/$TIDY_USER/g" /tmp/container-tidy-user.service
+mv /tmp/container-tidy-user.service /etc/systemd/system/container-tidy-user.service
+
+# ============================================================
+# 6/8  /etc/systemd/system/container-tidy-root.service
+# ============================================================
+cat > /etc/systemd/system/container-tidy-root.service <<'TIDY_ROOT_UNIT'
+# container-tidy-root.service — root 级清理（仅做最小必要操作）。
+# 清理 /tmp/systemd-private-* 残留目录、journald vacuum、apt 缓存（不动 lists）。
+# 文档：/usr/share/doc/container-tidy/README.md
+[Unit]
+Description=container-tidy root-level cleanup (journal, /tmp private dirs, apt)
+Documentation=file:/usr/share/doc/container-tidy/README.md
+After=local-fs.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/container-tidy
+ExecStart=/usr/local/bin/container-tidy-root.sh
+NoNewPrivileges=true
+Nice=19
+IOSchedulingClass=idle
+TIDY_ROOT_UNIT
+
+# ============================================================
+# 7/8  /etc/default/container-tidy
+# ============================================================
+cat > /etc/default/container-tidy <<'TIDY_CONF'
+# container-tidy 配置：由 unit 的 EnvironmentFile= 读取，同时被清理脚本 source。
+# 修改后执行：sudo systemctl restart container-tidy.timer
+# 完整文档：/usr/share/doc/container-tidy/README.md
+TMP_AGE_DAYS=1
+PROJECT_TMP_AGE_DAYS=7
+STALE_PRIVATE_AGE_DAYS=7
+JOURNAL_VACUUM_SIZE=50M
+JOURNAL_VACUUM_AGE=14d
+USER_CACHES="pip go-build node"
+APT_CLEAN=yes
+DRY_RUN=0
+TIDY_CONF
+
+# ============================================================
+# 8/8  /usr/share/doc/container-tidy/README.md
+# ============================================================
+install -d -m 755 /usr/share/doc/container-tidy
+cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
+# container-tidy — 容器周期性垃圾清理
+
+> 建立时间：2026-08-31（当日本容器根分区已用 8.4G，为控制增长而部署本任务）
+
+## 这是什么
+
+一组 systemd timer + 脚本，每周日凌晨与每次开机 15 分钟后自动清理：
+`/tmp` 遗留构建产物、已结束会话残留目录、journald 日志、apt 缓存、用户级缓存（pip/go-build/node）。
+预期每周回收几百 MB（视 opencode/Bun 使用频率浮动）。
+
+## 文件清单（8 个，由 ubuntu-machine 插件 140-container-tidy 部署）
+
+| 路径 | 职责 |
+|---|---|
+| `/etc/systemd/system/container-tidy.timer` | 调度：周日 06:30 + 开机 15 分钟（Persistent 补跑） |
+| `/etc/systemd/system/container-tidy.target` | 聚合目标，同时拉起下面两个 service |
+| `/etc/systemd/system/container-tidy-user.service` | 以 `$TIDY_USER` 身份运行用户级清理 |
+| `/etc/systemd/system/container-tidy-root.service` | 以 root 运行 root 级清理 |
+| `/usr/local/bin/container-tidy-user.sh` | 用户级清理脚本 |
+| `/usr/local/bin/container-tidy-root.sh` | root 级清理脚本 |
+| `/etc/default/container-tidy` | 全部阈值配置（脚本与 unit 共读） |
+| `/usr/share/doc/container-tidy/README.md` | 本文档 |
+
+## 清理范围与安全边界
+
+| 对象 | 门槛 | 运行身份 |
+|---|---|---|
+| `/tmp/.[hash].so`（Bun/编译临时产物） | >1 天 | 普通用户 |
+| `/tmp/opencode/*` 子项（venv、pycache 等） | >7 天 | 普通用户 |
+| `/tmp/systemd-private-*`（已结束会话残留） | >7 天 | root |
+| journald | vacuum 至 50M / 14d | root |
+| `/var/cache/apt`（**不动** `/var/lib/apt/lists`，清了拖慢下次 apt） | — | root |
+| `~/.cache/{pip,go-build,node}` | — | 普通用户 |
+
+**永不触碰**（清理方案评审时明确排除）：
+
+- `/Users` —— 宿主机 virtiofs 绑定挂载，绝对不能动
+- `~/.local/share/opencode/`（opencode 会话数据库，删除即清空全部会话记录）
+- `~/go`（Go 模块缓存）、`~/.rustup`（Rust 工具链）、`~/.opencode`（程序本体）
+- 其他用户属主的文件（脚本只删 `$USER` 属主对象）
+
+## 配置（`/etc/default/container-tidy`）
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `TMP_AGE_DAYS` | 1 | /tmp 下 .so 产物保留天数 |
+| `PROJECT_TMP_AGE_DAYS` | 7 | /tmp/opencode 子项保留天数 |
+| `STALE_PRIVATE_AGE_DAYS` | 7 | systemd-private 残留目录保留天数 |
+| `JOURNAL_VACUUM_SIZE` / `JOURNAL_VACUUM_AGE` | 50M / 14d | journal vacuum 阈值 |
+| `USER_CACHES` | "pip go-build node" | 要清空的 ~/.cache 子目录 |
+| `APT_CLEAN` | yes | 是否执行 apt-get clean |
+| `DRY_RUN` | 0 | 1 = 只报告不删除（排障用） |
+
+改完配置执行：`sudo systemctl restart container-tidy.timer`
+
+## 运维速查
+
+```bash
+systemctl cat container-tidy.timer                                  # 看定义
+systemctl list-timers container-tidy.timer                          # 下次运行时间
+sudo journalctl -t container-tidy-user -t container-tidy-root      # 清理日志
+sudo systemctl start container-tidy.target                         # 手动立即跑一次
+sudo systemctl disable --now container-tidy.timer                  # 停用
+
+# 卸载（停用后删除全部 8 个文件 + systemctl daemon-reload）
+```
+
+## 已知问题
+
+- **NEXT 显示 `-`**：`OnBootSec` 在开机已久时启用会立即触发一次，systemd 偶发
+  不重排下次日历调度。`sudo systemctl restart container-tidy.timer` 即恢复。
+- service 有意**不加** `PrivateTmp`（会让清理打到隔离 /tmp 上，无效）与
+  `ProtectHome=read-only`（会挡住删缓存）。加固仅限 `NoNewPrivileges` +
+  `Nice=19` + `IOSchedulingClass=idle`。
+TIDY_DOC
+sed -i "s/\$TIDY_USER/$TIDY_USER/g" /tmp/container-tidy-README.md
+mv /tmp/container-tidy-README.md /usr/share/doc/container-tidy/README.md
+chmod 644 /usr/share/doc/container-tidy/README.md
+
+# ============================================================
+# 启用（仅 systemd 运行时；构建期跳过）
+# ============================================================
+if [[ -d /run/systemd/system ]]; then
+  systemctl daemon-reload
+  systemctl enable --now container-tidy.timer
+  echo "140-container-tidy: timer 已启用（用户级清理身份: $TIDY_USER）"
+else
+  echo "140-container-tidy: systemd 未运行（构建期？），文件已就位，未 enable"
+fi

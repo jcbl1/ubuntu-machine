@@ -1,0 +1,45 @@
+#!/bin/bash
+# 080-private - 私密文件落位（gitconfig / authorized_keys）
+#
+# 私密内容放在 plugins/private/（本地目录，不入库，见 .git/info/exclude）：
+#   private/gitconfig        -> ~/.gitconfig          (644)
+#   private/authorized_keys  -> ~/.ssh/authorized_keys (600, .ssh 700)
+#
+# 缺哪个文件就跳过哪项，绝不报错。绝不触碰 .ssh 私钥与 opencode auth.json。
+#
+# 运行期由 run-plugins 注入 TARGET_USER 与 PLUGIN_ROOT（= plugins/ 目录）；
+# 构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "080-private: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+private_root="${PLUGIN_ROOT:-$(dirname "$plugin_dir")}/private"
+
+# ---- gitconfig ----
+if [[ -s "$private_root/gitconfig" ]]; then
+  install -m 644 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$private_root/gitconfig" "$TARGET_HOME/.gitconfig"
+  echo "080-private: 已安装 gitconfig"
+else
+  echo "080-private: private/gitconfig 不存在，跳过（私密文件应放本地 plugins/private/）"
+fi
+
+# ---- authorized_keys ----
+if [[ -s "$private_root/authorized_keys" ]]; then
+  install -d -m 700 -o "$TARGET_USER" -g "$TARGET_GROUP" "$TARGET_HOME/.ssh"
+  install -m 600 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$private_root/authorized_keys" "$TARGET_HOME/.ssh/authorized_keys"
+  echo "080-private: 已安装 authorized_keys"
+else
+  echo "080-private: private/authorized_keys 不存在，跳过"
+fi
+
+echo "080-private: 完成（用户 $TARGET_USER）"

@@ -1,0 +1,65 @@
+#!/bin/bash
+# 060-yazi - yazi 文件管理器（GitHub release 二进制）+ 配置
+#
+# 二进制装到 ~/.local/bin（与既有容器一致，.zshrc 已含该 PATH），
+# 配置写到 ~/.config/yazi/yazi.toml。
+#
+# 依赖 unzip（030-cli-tools 提供）。
+# 重跑会更新到最新 release（幂等且保鲜）；需要钉版本时设 YAZI_VERSION（tag 名）。
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "060-yazi: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+
+command -v unzip >/dev/null || {
+  echo "060-yazi: 缺少 unzip，请先启用 030-cli-tools" >&2
+  exit 1
+}
+
+case "$(uname -m)" in
+  aarch64|arm64) arch="aarch64-unknown-linux-gnu" ;;
+  x86_64)        arch="x86_64-unknown-linux-gnu" ;;
+  *) echo "060-yazi: 不支持的架构: $(uname -m)" >&2; exit 1 ;;
+esac
+
+version="${YAZI_VERSION:-latest}"
+if [[ "$version" == "latest" ]]; then
+  url="https://github.com/sxyazi/yazi/releases/latest/download/yazi-${arch}.zip"
+else
+  url="https://github.com/sxyazi/yazi/releases/download/${version}/yazi-${arch}.zip"
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo "060-yazi: 下载 $url"
+curl -fL "$url" -o "$tmp/yazi.zip"
+unzip -oq "$tmp/yazi.zip" -d "$tmp"
+
+# 中间层（~/.local、~/.config）显式列为 operand：install -d 的 -o/-g 只保证
+# 落在 operand 上，缺失的中间层否则会以执行者（root）身份创建
+install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  "$TARGET_HOME/.local" "$TARGET_HOME/.local/bin" \
+  "$TARGET_HOME/.config" "$TARGET_HOME/.config/yazi"
+install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$tmp"/yazi-*/yazi "$TARGET_HOME/.local/bin/yazi"
+install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$tmp"/yazi-*/ya   "$TARGET_HOME/.local/bin/ya"
+
+# ---- ~/.config/yazi/yazi.toml ----
+cat > "$TARGET_HOME/.config/yazi/yazi.toml" <<'YAZITOML'
+[mgr]
+show_hidden = false
+sort_by = "natural"
+sort_dir_first = false
+YAZITOML
+chown "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.config/yazi/yazi.toml"
+
+"$TARGET_HOME/.local/bin/yazi" --version
+echo "060-yazi: 完成（用户 $TARGET_USER）"
