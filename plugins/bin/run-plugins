@@ -1,34 +1,106 @@
 #!/bin/bash
 # run-plugins - execute enabled plugin scripts (nginx sites-enabled style)
+# 构建期与运行期共用的唯一执行器。
 #
-# Usage: run-plugins [PLUGINS_ENABLED_DIR]
+# 构建期（Dockerfile 调用，位置参数指定 enabled 目录）:
+#   /usr/local/sbin/run-plugins /opt/plugins/enabled
+# 运行期（容器创建后执行一次，完成用户级初始化）:
+#   sudo bash plugins/bin/run-plugins [--proxy URL] [--dry-run]
+#                                     [--enabled DIR] [--target-user USER]
 #
-# Plugins live in plugins/available/, enabling a plugin means creating a
-# symlink in plugins/enabled/ (like Debian's nginx sites-available/sites-enabled).
+#   --proxy URL        为插件导出代理（http_proxy/https_proxy/all_proxy），
+#                      供 GitHub 等下载使用，如 --proxy http://192.168.64.1:20121
+#   --target-user USER 用户级配置的目标用户
+#   --dry-run          只列出将要执行的插件，不实际运行
 #
-#   ln -s ../available/050-my-plugin plugins/enabled/050-my-plugin  # enable
-#   rm plugins/enabled/050-my-plugin                                # disable
-#
-# Enabled scripts are executed with bash in lexicographic filename order,
-# so numeric prefixes (010-, 020-, ...) control ordering.
-#
-# Plugin contract:
-#   - plain bash script, must handle its own failures (runner uses set -e)
-#   - self-contained: run "apt-get update" itself if needed, and clean up
+# 插件契约（contract）:
+#   - plain bash script, executed with "bash" in lexicographic filename order
+#     (use numeric prefixes 010-, 020-, ... to control ordering)
+#   - enable it with:  ln -s ../available/050-my-plugin plugins/enabled/050-my-plugin
+#   - self-contained: run "apt-get update" if you need packages, and clean up
 #     afterwards ("apt-get clean && rm -rf /var/lib/apt/lists/*")
-#   - do NOT write into the plugin directory (it is mounted read-only);
+#   - non-interactive: DEBIAN_FRONTEND=noninteractive and PLUGIN_NAME are exported
+#     by the runner; apt commands must not prompt
+#   - do not write into the plugin directory (read-only mount at build time);
 #     use /tmp for scratch files
-# Environment provided to each plugin:
-#   PLUGIN_NAME          basename of the plugin script
-#   DEBIAN_FRONTEND      noninteractive
+#   - 条件自判定：插件自行检查前置条件，不满足则跳过（如 TARGET_USER 为空时
+#     跳过用户级部分）。任一插件失败即中止后续插件。
+#
+# 注入环境:
+#   PLUGIN_NAME      basename of the plugin script
+#   DEBIAN_FRONTEND  noninteractive
+#   TARGET_USER      目标用户名（--target-user > $TARGET_USER > $SUDO_USER >
+#                    首个 uid>=1000 的用户）；解析不到则置空，插件据此跳过
+# PLUGIN_ROOT      plugins/ 目录（仅脚本位于仓库 plugins/bin/ 布局时导出，
+#                  供 080-private 据此定位 private/）
 
 set -euo pipefail
 
-enabled_dir="${1:-/opt/plugins/enabled}"
+usage() {
+  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  exit 0
+}
 
-if [[ ! -d "$enabled_dir" ]]; then
-  echo "run-plugins: directory not found: $enabled_dir" >&2
+proxy=""
+target_user_arg=""
+enabled_arg=""
+dry_run=0
+positional=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --proxy)         proxy="$2"; shift 2 ;;
+    --proxy=*)       proxy="${1#*=}"; shift ;;
+    --target-user)   target_user_arg="$2"; shift 2 ;;
+    --target-user=*) target_user_arg="${1#*=}"; shift ;;
+    --enabled)       enabled_arg="$2"; shift 2 ;;
+    --enabled=*)     enabled_arg="${1#*=}"; shift ;;
+    --dry-run)       dry_run=1; shift ;;
+    -h|--help)       usage ;;
+    --*)             echo "run-plugins: 未知选项: $1" >&2; exit 2 ;;
+    *)               positional+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#positional[@]} -gt 1 ]]; then
+  echo "run-plugins: 最多一个位置参数（enabled 目录）" >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+enabled_dir="${enabled_arg:-${positional[0]:-$SCRIPT_DIR/../enabled}}"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "run-plugins: 请用 sudo 运行（插件需要 root 安装系统包）" >&2
   exit 1
+fi
+
+# TARGET_USER：解析不到就置空，由插件自行跳过用户级部分
+target_user=""
+for candidate in "$target_user_arg" "${TARGET_USER:-}" "${SUDO_USER:-}"; do
+  if [[ -n "$candidate" && "$candidate" != "root" ]] && id "$candidate" >/dev/null 2>&1; then
+    target_user="$candidate"
+    break
+  fi
+done
+if [[ -z "$target_user" ]]; then
+  target_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home\// {print $1; exit}')"
+fi
+export TARGET_USER="$target_user"
+
+# PLUGIN_ROOT：仅当脚本位于仓库 plugins/bin/ 布局中时导出（指向 plugins/ 目录）
+plugins_dir="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -d "$plugins_dir/available" && -d "$plugins_dir/bin" ]]; then
+  export PLUGIN_ROOT="$plugins_dir"
+fi
+
+if [[ -n "$proxy" ]]; then
+  export http_proxy="$proxy" https_proxy="$proxy" all_proxy="$proxy"
+fi
+
+echo ">>> run-plugins: TARGET_USER=${TARGET_USER:-<empty>}  enabled=$enabled_dir"
+if [[ -n "$proxy" ]]; then
+  echo ">>> run-plugins: proxy=$proxy"
 fi
 
 shopt -s nullglob
@@ -40,7 +112,11 @@ if [[ ${#plugins[@]} -eq 0 ]]; then
   exit 0
 fi
 
-export DEBIAN_FRONTEND=noninteractive
+if [[ $dry_run -eq 1 ]]; then
+  echo ">>> run-plugins: dry-run, 共 ${#plugins[@]} 个插件："
+  printf '    %s\n' "${plugins[@]##*/}"
+  exit 0
+fi
 
 failed=0
 for plugin in "${plugins[@]}"; do
