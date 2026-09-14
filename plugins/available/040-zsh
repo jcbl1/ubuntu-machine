@@ -260,8 +260,51 @@ export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="underline"
 ALLINONE
 
+# ---- bash 启动文件（~/.bashrc / ~/.profile）----
+# 与既有容器一致：bash 交互/登录 shell 同样拿到 opencode PATH、cargo、nvm
+# （本环境 CONTAINER_SHELL=/bin/bash，脚本与登录 bash 都会读这些文件）。
+# 用标记块保证幂等：块内内容每次重写，块外用户改动不受影响。
+upsert_bash_block() {
+  local file="$1"
+  local begin='# >>> ubuntu-machine bash env >>>'
+  local end='# <<< ubuntu-machine bash env <<<'
+  if [[ -f "$file" ]] && grep -qF "$begin" "$file"; then
+    awk -v b="$begin" -v e="$end" \
+      '$0==b {inblock=1} inblock && $0==e {inblock=0; next} !inblock {print}' \
+      "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+  fi
+  [[ -f "$file" ]] || : > "$file"
+  [[ -s "$file" && "$(tail -c1 "$file")" != "" ]] && printf '\n' >> "$file"
+  cat >> "$file"
+}
+
+upsert_bash_block "$TARGET_HOME/.bashrc" <<'BASHRC_ENV'
+# >>> ubuntu-machine bash env >>>
+# opencode
+export PATH="$HOME/.opencode/bin:$PATH"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+# <<< ubuntu-machine bash env <<<
+BASHRC_ENV
+
+upsert_bash_block "$TARGET_HOME/.profile" <<'PROFILE_ENV'
+# >>> ubuntu-machine bash env >>>
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+# <<< ubuntu-machine bash env <<<
+PROFILE_ENV
+
 # ---- 属主与登录 shell ----
-chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.oh-my-zsh" "$TARGET_HOME/.zshrc" "$TARGET_HOME/.zshenv"
+chown -R "$TARGET_USER:$TARGET_GROUP" \
+  "$TARGET_HOME/.oh-my-zsh" "$TARGET_HOME/.zshrc" "$TARGET_HOME/.zshenv" \
+  "$TARGET_HOME/.bashrc" "$TARGET_HOME/.profile"
 
 zsh_path="$(command -v zsh || true)"
 if [[ -n "$zsh_path" && "$(getent passwd "$TARGET_USER" | cut -d: -f7)" != "$zsh_path" ]]; then

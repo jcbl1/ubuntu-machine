@@ -30,7 +30,9 @@
 #   PLUGIN_NAME      basename of the plugin script
 #   DEBIAN_FRONTEND  noninteractive
 #   TARGET_USER      目标用户名（--target-user > $TARGET_USER > $SUDO_USER >
-#                    首个 uid>=1000 的用户）；解析不到则置空，插件据此跳过
+#                    首个 HOME 位于 /home/ 下的非 root 用户）；解析不到则置空，
+#                    插件据此跳过（容器用户 uid 不一定是 >=1000，如 Apple
+#                    container machine 注入的用户 uid=501，故按 HOME 判定）
 # PLUGIN_ROOT      plugins/ 目录（仅脚本位于仓库 plugins/bin/ 布局时导出，
 #                  供 080-private 据此定位 private/）
 
@@ -84,7 +86,7 @@ for candidate in "$target_user_arg" "${TARGET_USER:-}" "${SUDO_USER:-}"; do
   fi
 done
 if [[ -z "$target_user" ]]; then
-  target_user="$(getent passwd | awk -F: '$3 >= 1000 && $6 ~ /^\/home\// {print $1; exit}')"
+  target_user="$(getent passwd | awk -F: '$1 != "root" && $3 != 65534 && $6 ~ /^\/home\// {print $1; exit}')"
 fi
 export TARGET_USER="$target_user"
 

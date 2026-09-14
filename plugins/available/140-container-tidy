@@ -5,14 +5,23 @@
 # /tmp 产物、journald、apt 缓存、用户级缓存。详细文档随包部署到
 # /usr/share/doc/container-tidy/README.md。
 #
-# 用户级清理的运行身份取 TARGET_USER（run-plugins 注入；解析不到则回落 jcbl1）。
+# 用户级清理的运行身份取 TARGET_USER（run-plugins 注入）。构建期无用户时按
+# run-plugins 同款规则探测（首个 HOME 位于 /home/ 下的非 root 用户）；仍解析
+# 不到则暂以 root 占位（仅构建期，运行期 run-plugins 会以真实用户重写并启用）。
 # systemctl 相关操作仅在 systemd 运行时执行（构建期跳过）。
 # 构建期/运行期均可执行（除 enable 外均为纯 root 文件操作）。
 
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-TIDY_USER="${TARGET_USER:-jcbl1}"
+TIDY_USER="${TARGET_USER:-}"
+if [[ -z "$TIDY_USER" ]]; then
+  TIDY_USER="$(getent passwd | awk -F: '$1 != "root" && $3 != 65534 && $6 ~ /^\/home\// {print $1; exit}')"
+fi
+if [[ -z "$TIDY_USER" ]]; then
+  TIDY_USER=root
+  echo "140-container-tidy: 未解析到目标用户，用户级清理暂以 root 占位；运行期请重跑 run-plugins 以修正" >&2
+fi
 
 # ============================================================
 # 1/8  /usr/local/bin/container-tidy-root.sh
@@ -80,7 +89,7 @@ chmod 755 /usr/local/bin/container-tidy-root.sh
 # ============================================================
 cat > /usr/local/bin/container-tidy-user.sh <<'TIDY_USER_SH'
 #!/usr/bin/env bash
-# container-tidy-user.sh — 用户级清理（由 container-tidy-user.service 以 jcbl1 运行）
+# container-tidy-user.sh — 用户级清理（由 container-tidy-user.service 以其 User= 身份运行）
 # 清理对象：/tmp 遗留 .so 产物（>TMP_AGE_DAYS 天）、/tmp/opencode 陈旧子项
 #           （>PROJECT_TMP_AGE_DAYS 天）、~/.cache 下 USER_CACHES 列出的缓存目录。
 # 安全边界：只删属于当前用户的对象；年龄门槛保护当前会话在用的产物。
