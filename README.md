@@ -1,6 +1,6 @@
 # ubuntu-machine
 
-基于 Ubuntu 24.04 的 systemd 容器基础镜像（sshd、systemd 已配置），内置构建期插件系统，用于安装自定义软件、完成自定义设置。
+基于 Ubuntu 24.04 的 systemd 容器基础镜像（sshd、systemd 已配置），内置插件系统，用于安装自定义软件、完成自定义设置。
 
 ## 构建
 

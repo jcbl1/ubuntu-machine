@@ -1,8 +1,8 @@
 #!/bin/bash
 # 130-tauri-deps - Tauri / GUI 交叉编译依赖（apt，体积几百 MB）
 #
-# 与既有容器手工安装的集合一致：Linux GUI 编译（gtk/webkit）、
-# Windows 交叉（mingw）、图标/测试工具（imagemagick、xvfb、xdotool）。
+# Linux GUI 编译（gtk/webkit）、Windows 交叉（mingw）、
+# 图标/测试工具（imagemagick、xvfb、xdotool）。
 # 仅做 Tauri/Rust 桌面开发时才需要，默认不建议启用。
 #
 # 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。

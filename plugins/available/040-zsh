@@ -1,7 +1,7 @@
 #!/bin/bash
 # 040-zsh - oh-my-zsh + zsh 配置（用户级）
 #
-# 部署内容（与既有容器逐字一致，仅两处适配，见 CHECKLIST.md「已知差异」）：
+# 部署内容（与既有容器逐字一致，适配见下）：
 #   ~/.zshrc                主题 risto、插件列表、nvm、yazi y()、fzf 配置
 #                           （差异：opencode PATH 的硬编码 /home/jcbl1 改为 $HOME）
 #   ~/.zshenv               cargo env（差异：加 -f 存在性保护）

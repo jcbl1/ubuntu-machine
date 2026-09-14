@@ -1,7 +1,7 @@
 #!/bin/bash
 # 030-cli-tools - 常用 CLI 工具（apt）+ fd 软链修复
 #
-# 包集合与本容器手工安装的集合一致，另补 unzip（060-yazi 解压用）与 less。
+# 另补 unzip（060-yazi 解压用）与 less。
 # fd-find 在 Ubuntu 上二进制叫 fdfind；all-in-one.zsh 的 FZF_DEFAULT_COMMAND
 # 用的是 fd，这里补一个 /usr/local/bin/fd 软链。
 #
