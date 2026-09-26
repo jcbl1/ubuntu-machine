@@ -4,7 +4,7 @@
 # 二进制装到 ~/.local/bin（与既有容器一致，.zshrc 已含该 PATH），
 # 配置写到 ~/.config/yazi/yazi.toml。
 #
-# 依赖 unzip（030-cli-tools 提供）。
+# 依赖 unzip 与 file（030-cli-tools 提供）。file 用于文件类型检测，是 yazi 的必需前置。
 # 重跑会更新到最新 release（幂等且保鲜）；需要钉版本时设 YAZI_VERSION（tag 名）。
 #
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
@@ -21,6 +21,11 @@ TARGET_GROUP="$(id -gn "$TARGET_USER")"
 
 command -v unzip >/dev/null || {
   echo "060-yazi: 缺少 unzip，请先启用 030-cli-tools" >&2
+  exit 1
+}
+
+command -v file >/dev/null || {
+  echo "060-yazi: 缺少 file，请先启用 030-cli-tools" >&2
   exit 1
 }
 

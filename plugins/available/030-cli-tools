@@ -1,7 +1,7 @@
 #!/bin/bash
 # 030-cli-tools - 常用 CLI 工具（apt）+ fd 软链修复
 #
-# 另补 unzip（060-yazi 解压用）与 less。
+# 另补 unzip（060-yazi 解压用）、file（060-yazi 文件类型检测）与 less。
 # fd-find 在 Ubuntu 上二进制叫 fdfind；all-in-one.zsh 的 FZF_DEFAULT_COMMAND
 # 用的是 fd，这里补一个 /usr/local/bin/fd 软链。
 #
@@ -14,7 +14,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   git zsh tmux fzf ripgrep fd-find bat btop htop ncdu \
-  lsof rsync vim strace unzip less
+  lsof rsync vim strace unzip file less
 
 # fdfind -> fd（all-in-one.zsh: FZF_DEFAULT_COMMAND="fd --type f"）
 if command -v fdfind >/dev/null && [[ ! -e /usr/local/bin/fd ]]; then
