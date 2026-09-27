@@ -1,0 +1,17 @@
+#!/bin/bash
+# 035-build-essential - 编译工具链（make/gcc/g++/libc-dev）
+#
+# 轻量：仅 apt 安装 build-essential（含 make、gcc、g++、libc6-dev）。
+# 幂等：apt 重复安装无害。
+# 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。
+#
+# Enable with: ln -s ../available/035-build-essential plugins/enabled/035-build-essential
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends build-essential
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
