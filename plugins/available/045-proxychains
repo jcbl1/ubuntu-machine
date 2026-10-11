@@ -1,0 +1,41 @@
+#!/bin/bash
+# 045-proxychains - proxychains4 + 指向宿主机代理的配置
+#
+# proxychains4 让单条命令走宿主代理（例：proxychains4 -q npx ...），
+# 160-opencode-telegram-bot 的启动器即依赖它。
+#
+# 写入 /etc/proxychains4.conf：开启 strict_chain 与 proxy_dns，[ProxyList]
+# 指向宿主代理。默认 192.168.64.1:20121，与 all-in-one.zsh 的 pc 别名默认值
+# 保持一致；可用 PROXY_HOST / PROXY_PORT 覆盖。
+#
+# 幂等：apt 重复安装无害；conf 每次重写为期望值。
+# 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。
+#
+# Enable with: ln -s ../available/045-proxychains plugins/enabled/045-proxychains
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+PROXY_HOST="${PROXY_HOST:-192.168.64.1}"
+PROXY_PORT="${PROXY_PORT:-20121}"
+
+apt-get update
+apt-get install -y --no-install-recommends proxychains4
+
+cat > /etc/proxychains4.conf <<PROXYCONF
+# proxychains4.conf —— 由 ubuntu-machine/plugins/available/045-proxychains 部署。
+# 指向宿主代理；如需改动，请改插件而非本文件（重跑会被覆盖）。
+strict_chain
+proxy_dns
+remote_dns_subnet 224
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+
+[ProxyList]
+http ${PROXY_HOST} ${PROXY_PORT}
+PROXYCONF
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "045-proxychains: 完成，代理指向 http://${PROXY_HOST}:${PROXY_PORT}"
