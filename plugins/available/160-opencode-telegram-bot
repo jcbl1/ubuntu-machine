@@ -1,0 +1,73 @@
+#!/bin/bash
+# 160-opencode-telegram-bot - 从 Telegram 远程驱动 opencode 的第三方 bot 启动器
+#
+# bot 本体是第三方 npm 包（@grinev/opencode-telegram-bot），不落地源码，由启动器
+# 按需 npx 拉取。密钥（.env）不放这里，由 080-private 从
+# plugins/private/opencode-telegram-bot.env 落位（600）。
+#
+# 依赖：045-proxychains（proxychains4）与 100-nvm（nvm/node），编号均在前，先执行。
+#
+# 部署（用户级）：
+#   ~/opencode-telegram-bot/run-bot.sh   启动器（nvm 定位 node -> PATH -> proxychains npx）
+#   ~/opencode-telegram-bot/.nvmrc       使用的 Node 版本（默认 v22.23.2）
+#   ~/.config/opencode-telegram-bot/     运行数据目录（700，放 .env / settings.json / logs）
+#
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "160-opencode-telegram-bot: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+command -v proxychains4 >/dev/null || {
+  echo "160-opencode-telegram-bot: 缺少 proxychains4，请先启用 045-proxychains" >&2
+  exit 1
+}
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+
+NODE_VERSION="${TELEGRAM_BOT_NODE_VERSION:-v22.23.2}"
+
+install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  "$TARGET_HOME/opencode-telegram-bot" \
+  "$TARGET_HOME/.config"
+install -d -m 700 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  "$TARGET_HOME/.config/opencode-telegram-bot"
+
+# ---- .nvmrc ----
+printf '%s\n' "$NODE_VERSION" > "$TARGET_HOME/opencode-telegram-bot/.nvmrc"
+chown "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/opencode-telegram-bot/.nvmrc"
+chmod 644 "$TARGET_HOME/opencode-telegram-bot/.nvmrc"
+
+# ---- run-bot.sh ----
+cat > /tmp/opencode-telegram-bot-run.sh <<'RUNBOT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$SCRIPT_DIR"
+
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+NODE_VERSION="$(tr -d 'v \r\n' < "$SCRIPT_DIR/.nvmrc" 2>/dev/null || true)"
+NODE_VERSION="${NODE_VERSION:-22.23.2}"
+NODE_BIN="$NVM_DIR/versions/node/v${NODE_VERSION}/bin"
+
+if [ ! -x "$NODE_BIN/npx" ]; then
+  export NVM_DIR
+  . "$NVM_DIR/nvm.sh"
+  nvm install
+  nvm use
+  NODE_BIN="$(dirname "$(nvm which current)")"
+fi
+
+export PATH="$NODE_BIN:/usr/local/bin:/usr/bin:/bin"
+exec proxychains4 -q "$NODE_BIN/npx" "@grinev/opencode-telegram-bot@latest"
+RUNBOT
+install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  /tmp/opencode-telegram-bot-run.sh "$TARGET_HOME/opencode-telegram-bot/run-bot.sh"
+rm -f /tmp/opencode-telegram-bot-run.sh
+
+echo "160-opencode-telegram-bot: 完成（用户 $TARGET_USER；密钥请放 plugins/private/opencode-telegram-bot.env，由 080-private 落位）"

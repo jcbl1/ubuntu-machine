@@ -2,8 +2,9 @@
 # 080-private - 私密文件落位（gitconfig / authorized_keys）
 #
 # 私密内容放在 plugins/private/（本地目录，不入库，见 .gitignore）：
-#   private/gitconfig        -> ~/.gitconfig          (644)
-#   private/authorized_keys  -> ~/.ssh/authorized_keys (600, .ssh 700)
+#   private/gitconfig                   -> ~/.gitconfig          (644)
+#   private/authorized_keys             -> ~/.ssh/authorized_keys (600, .ssh 700)
+#   private/opencode-telegram-bot.env   -> ~/.config/opencode-telegram-bot/.env (600)
 #
 # 缺哪个文件就跳过哪项，绝不报错。绝不触碰 .ssh 私钥与 opencode auth.json。
 #
@@ -40,6 +41,18 @@ if [[ -s "$private_root/authorized_keys" ]]; then
   echo "080-private: 已安装 authorized_keys"
 else
   echo "080-private: private/authorized_keys 不存在，跳过"
+fi
+
+# ---- opencode-telegram-bot .env ----
+if [[ -s "$private_root/opencode-telegram-bot.env" ]]; then
+  install -d -m 700 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$TARGET_HOME/.config/opencode-telegram-bot"
+  install -m 600 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$private_root/opencode-telegram-bot.env" \
+    "$TARGET_HOME/.config/opencode-telegram-bot/.env"
+  echo "080-private: 已安装 opencode-telegram-bot .env"
+else
+  echo "080-private: private/opencode-telegram-bot.env 不存在，跳过"
 fi
 
 echo "080-private: 完成（用户 $TARGET_USER）"
