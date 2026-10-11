@@ -1,9 +1,11 @@
 #!/bin/bash
 # 090-opencode - opencode 配置（认证不入库，留给 `opencode auth login`）
 #
-# 部署 ~/.config/opencode/opencode.jsonc 与 opencode-notifier.json（逐字一致）。
-# notifier 插件（@mohak34/opencode-notifier）由 opencode 依据 jsonc 的
-# "plugin" 字段自动安装，无需在此处理。
+# 部署 ~/.config/opencode/ 下的 opencode.jsonc、cli.json 与
+# opencode-notifier.json（逐字一致），均为 OpenCode V2 原生格式。
+# notifier 插件（@mohak34/opencode-notifier）单包同时支持 V1/V2：V2 下由
+# opencode 依据 jsonc 的 "plugins" 字段自动安装，终端组件由 CLI 自动加载；
+# cli.json 中禁用内置的 opencode.notifications，避免与 notifier 重复提醒。
 # 二进制缺失时回退官方安装脚本（用户级 ~/.opencode/bin，--no-modify-path，
 # PATH 由 040-zsh 的 .zshrc 负责）。
 #
@@ -23,21 +25,26 @@ as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
 install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
   "$TARGET_HOME/.config" "$TARGET_HOME/.config/opencode"
 
-# ---- opencode.jsonc ----
+# ---- opencode.jsonc（V2 原生格式）----
 cat > "$TARGET_HOME/.config/opencode/opencode.jsonc" <<'OCJSONC'
 {
   "$schema": "https://opencode.ai/config.json",
-  "tools": {
-    "websearch": true
-  },
-  "permission": {
-    "bash": "allow",
-    "webfetch": "allow",
-    "websearch": "allow"
-  },
-  "plugin": ["@mohak34/opencode-notifier@latest"]
+  "permissions": [
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "webfetch", "resource": "*", "effect": "allow" },
+    { "action": "websearch", "resource": "*", "effect": "allow" }
+  ],
+  "plugins": ["@mohak34/opencode-notifier@latest"]
 }
 OCJSONC
+
+# ---- cli.json（终端层配置；禁用内置通知，避免与 notifier 重复）----
+cat > "$TARGET_HOME/.config/opencode/cli.json" <<'OCCLI'
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["-opencode.notifications"]
+}
+OCCLI
 
 # ---- opencode-notifier.json ----
 cat > "$TARGET_HOME/.config/opencode/opencode-notifier.json" <<'OCNOTIFIER'
@@ -54,6 +61,7 @@ OCNOTIFIER
 
 chown "$TARGET_USER:$TARGET_GROUP" \
   "$TARGET_HOME/.config/opencode/opencode.jsonc" \
+  "$TARGET_HOME/.config/opencode/cli.json" \
   "$TARGET_HOME/.config/opencode/opencode-notifier.json"
 
 # ---- 二进制兜底（镜像已含 /usr/local/bin/opencode 时自动跳过）----

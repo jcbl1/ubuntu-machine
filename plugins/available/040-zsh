@@ -241,10 +241,6 @@ export LESS="-R"
 export PATH="$PATH:$HOME/go/bin"
 export FZF_DEFAULT_COMMAND="fd --type f"
 
-# opencode
-export OPENCODE_ENABLE_EXA=1
-export OPENCODE_EXPERIMENTAL_LSP_TOOL=true
-
 # for asdf
 export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
