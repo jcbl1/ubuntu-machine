@@ -1,3 +1,6 @@
 plugins/enabled/*
 !plugins/enabled/.gitkeep
 plugins/private/
+
+NOTES.md
+NOTES.*.md

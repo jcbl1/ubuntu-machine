@@ -3,12 +3,13 @@
 #
 # 部署 ~/.config/opencode/ 下的 opencode.jsonc、cli.json 与
 # opencode-notifier.json，均为 OpenCode V2 原生格式：
-#   - opencode.jsonc: tools / permission + mcp 服务器（anymd / notion /
-#     excalidraw / n8n，playwright 保留注释）+ notifier 插件。mcp 命令里的
-#     nvm-exec 路径随 TARGET_HOME 变化，用占位符注入后再 sed 替换；n8n 的
-#     cwd 指向宿主 n8n-workflows 项目。
+#   - opencode.jsonc: websearch + permissions 数组 + mcp.servers 服务器
+#     （reactive-resume / anymd / notion / excalidraw / n8n，playwright
+#     保留注释）+ notifier 插件。V2 使用 mcp.servers 与 disabled，不使用
+#     V1 的 mcp.<name> / enabled。mcp 命令里的 nvm-exec 路径随 TARGET_HOME
+#     变化，用占位符注入后再 sed 替换；n8n 的 cwd 指向宿主 n8n-workflows 项目。
 #   - cli.json: 终端层 UI 配置，禁用内置 opencode.notifications，避免与
-#     notifier 重复提醒。
+#     notifier 重复提醒；session.permissions 保留 TUI 的权限询问行为。
 # notifier 插件（@mohak34/opencode-notifier）单包同时支持 V1/V2：V2 下由
 # opencode 依据 jsonc 的 "plugins" 字段自动安装，终端组件由 CLI 自动加载。
 # 二进制缺失时回退官方安装脚本（用户级 ~/.opencode/bin，--no-modify-path，
@@ -36,53 +37,65 @@ jsonc_tmp="$(mktemp)"
 cat > "$jsonc_tmp" <<'OCJSONC'
 {
   "$schema": "https://opencode.ai/config.json",
-  "tools": {
-    "websearch": true
+  "websearch": {
+    "provider": "random"
   },
-  "permission": {
-    "bash": "allow",
-    "webfetch": "allow",
-    "websearch": "allow"
-  },
+  "permissions": [
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "webfetch", "resource": "*", "effect": "allow" },
+    { "action": "websearch", "resource": "*", "effect": "allow" }
+  ],
   "mcp": {
-    "anymd": {
-      "type": "local",
-      "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@sylphx/anymd"],
-      "environment": {
-        "NODE_VERSION": "22"
+    "servers": {
+      "reactive-resume": {
+        "type": "remote",
+        "url": "https://me.yelr.de/mcp",
+        "oauth": {
+          "callback_port": 19876
+        },
+        "disabled": true
       },
-      "enabled": false
-    },
-    // "playwright": {
-    //   "type": "local",
-    //   "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@playwright/mcp@latest"],
-    //   "environment": {
-    //     "NODE_VERSION": "22"
-    //   },
-    //   "enabled": false
-    // },
-    "notion": {
-      "type": "remote",
-      "url": "https://mcp.notion.com/mcp",
-      "oauth": {},
-      "enabled": false
-    },
-    "excalidraw": {
-      "type": "remote",
-      "url": "https://mcp.excalidraw.com",
-      "enabled": false
-    },
-    "n8n": {
-      "type": "local",
-      "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "n8n-mcp"],
-      "cwd": "/Users/jcbl1/Developer/github.com/jcbl1/n8n-workflows",
-      "environment": {
-        "NODE_VERSION": "22",
-        "MCP_MODE": "stdio",
-        "LOG_LEVEL": "error",
-        "DISABLE_CONSOLE_OUTPUT": "true"
+      "anymd": {
+        "type": "local",
+        "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@sylphx/anymd"],
+        "environment": {
+          "NODE_VERSION": "22"
+        },
+        "disabled": true
       },
-      "enabled": false
+      // "playwright": {
+      //   "type": "local",
+      //   "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@playwright/mcp@latest"],
+      //   "environment": {
+      //     "NODE_VERSION": "22"
+      //   },
+      //   "disabled": true
+      // },
+      "notion": {
+        "type": "remote",
+        "url": "https://mcp.notion.com/mcp",
+        "oauth": {
+          "callback_port": 19876
+        },
+        "disabled": true
+      },
+      "excalidraw": {
+        "type": "remote",
+        "url": "https://mcp.excalidraw.com",
+        "disabled": true
+      },
+      "n8n": {
+        "type": "local",
+        "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "n8n-mcp"],
+        "cwd": "/Users/jcbl1/Developer/github.com/jcbl1/n8n-workflows",
+        "environment": {
+          "NODE_VERSION": "22",
+          "MCP_MODE": "stdio",
+          "LOG_LEVEL": "error",
+          "DISABLE_CONSOLE_OUTPUT": "true"
+        },
+        "disabled": true
+      }
     }
   },
   "plugins": ["@mohak34/opencode-notifier@latest"]
@@ -107,7 +120,8 @@ cat > "$TARGET_HOME/.config/opencode/cli.json" <<'OCCLI'
   "session": {
     "sidebar": "auto",
     "scrollbar": false,
-    "thinking": "hide"
+    "thinking": "hide",
+    "permissions": "prompt"
   },
   "animations": true
 }

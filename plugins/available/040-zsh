@@ -5,7 +5,8 @@
 #   ~/.zshrc                主题 risto、插件列表、nvm、yazi y()、fzf 配置
 #                           （差异：opencode PATH 的硬编码 /home/jcbl1 改为 $HOME）
 #   ~/.zshenv               cargo env（差异：加 -f 存在性保护）
-#   custom/all-in-one.zsh   别名与导出（差异：剔除 Mac 专属段，pc 代理参数化）
+#   custom/all-in-one.zsh   别名与导出（差异：剔除 Mac 专属段，pc 代理参数化；
+#                           补 opencode 的 oc 别名）
 #   custom/plugins/zsh-autosuggestions
 #
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
@@ -221,6 +222,8 @@ alias ..github='cd ~/Documents/github.com'
 alias pn=pnpm
 
 alias k=kubectl
+
+alias oc=opencode
 
 # 宿主机代理：可用 export PROXY_HOST/PROXY_PORT 覆盖，或直接改下面两个默认值
 _PROXY_HOST="${PROXY_HOST:-192.168.64.1}"
