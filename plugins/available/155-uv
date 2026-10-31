@@ -1,0 +1,43 @@
+#!/bin/bash
+# 155-uv - uv（Astral 的 Python 包/项目管理器，用户级）
+#
+# 用官方安装脚本装到 ~/.local/bin（040-zsh 已把该目录加入 PATH）。
+# 设置 UV_NO_MODIFY_PATH=1，不修改用户的 shell 启动文件；PATH 由 040-zsh 负责。
+#
+# 可用环境变量：
+#   UV_VERSION  安装指定版本（如 0.12.19；默认 latest）
+#
+# 幂等：~/.local/bin/uv 已存在则跳过。
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "155-uv: 无目标用户（构建期？），跳过用户级配置"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+as_user() { runuser -u "$TARGET_USER" -- env "HOME=$TARGET_HOME" "$@"; }
+
+if [[ -x "$TARGET_HOME/.local/bin/uv" ]]; then
+  echo "155-uv: uv 已存在，跳过安装"
+  "$TARGET_HOME/.local/bin/uv" --version
+  exit 0
+fi
+
+install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+  "$TARGET_HOME/.local" "$TARGET_HOME/.local/bin"
+
+if [[ -n "${UV_VERSION:-}" ]]; then
+  installer_url="https://astral.sh/uv/${UV_VERSION}/install.sh"
+else
+  installer_url="https://astral.sh/uv/install.sh"
+fi
+
+echo "155-uv: 安装 $installer_url"
+as_user env UV_NO_MODIFY_PATH=1 bash -c "curl -LsSf '$installer_url' | sh"
+
+"$TARGET_HOME/.local/bin/uv" --version
+echo "155-uv: 完成（用户 $TARGET_USER）"

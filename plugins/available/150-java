@@ -1,0 +1,42 @@
+#!/bin/bash
+# 150-java - Eclipse Temurin 17 JDK（Adoptium apt 源）
+#
+# 通过 Adoptium 官方 apt 源安装 temurin-17-jdk（系统级）。
+# 使用 /etc/apt/keyrings + signed-by，避免把 key 放进全局 trusted.gpg.d。
+# 若旧配置里存在全局信任的 adoptium key，会顺手清理。
+#
+# 幂等：apt 重复安装无害，key/源文件每次重写为期望值。
+# 构建期/运行期均可执行（纯 root 操作，不依赖 TARGET_USER）。
+
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+codename="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
+keyring="/etc/apt/keyrings/adoptium.gpg"
+list_file="/etc/apt/sources.list.d/adoptium.list"
+
+# 先移除旧源，避免 key 缺失/损坏时第一次 apt-get update 直接失败
+rm -f "$list_file"
+
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl gpg
+
+install -d -m 755 /etc/apt/keyrings
+curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public \
+  | gpg --dearmor --yes -o "$keyring"
+chmod 644 "$keyring"
+
+echo "deb [signed-by=$keyring] https://packages.adoptium.net/artifactory/deb $codename main" \
+  > "$list_file"
+
+# 旧式全局信任的 key（历史手工安装留下）不再需要
+rm -f /etc/apt/trusted.gpg.d/adoptium.gpg
+
+apt-get update
+apt-get install -y --no-install-recommends temurin-17-jdk
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+java -version 2>&1 | head -1
+echo "150-java: 完成（Temurin 17）"
