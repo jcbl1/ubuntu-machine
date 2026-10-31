@@ -2,6 +2,28 @@
 
 基于 Ubuntu 24.04 的 systemd 容器基础镜像（sshd、systemd 已配置），内置插件系统，用于安装自定义软件、完成自定义设置。
 
+## 镜像
+
+Docker Hub：[`jcbl1/ubuntu-machine`](https://hub.docker.com/r/jcbl1/ubuntu-machine)
+
+| Tag | 说明 |
+| --- | --- |
+| `latest` | 最新正式版本 |
+| `vX.Y` | 项目版本 |
+| `vX.Y-noble` | 项目版本 + Ubuntu codename |
+| `vX.Y-24.04` | 项目版本 + Ubuntu 版本号 |
+| `vX.Y-nobleYYYYMMDD[.N]` | 项目版本 + 构建所用基础镜像快照 |
+
+同一次发布的以上 tag 指向同一镜像 digest。例如 `v1.2` 发布时：
+
+```bash
+docker pull jcbl1/ubuntu-machine:latest
+docker pull jcbl1/ubuntu-machine:v1.2
+docker pull jcbl1/ubuntu-machine:v1.2-noble
+docker pull jcbl1/ubuntu-machine:v1.2-24.04
+docker pull jcbl1/ubuntu-machine:v1.2-noble20261024.1
+```
+
 ## 构建
 
 ```bash
@@ -9,6 +31,35 @@ docker build -t local/ubuntu-machine .
 ```
 
 构建上下文会排除 `.git` 与 `plugins/private/`（见 `.dockerignore`）。
+
+默认基础镜像为 `ubuntu:24.04`，可通过 `BASE_IMAGE` 指定其他 tag 或快照：
+
+```bash
+docker build --build-arg BASE_IMAGE=ubuntu:noble-20261024.1 -t local/ubuntu-machine .
+```
+
+## 发版
+
+版本号只来自 git tag，格式为 `vX.Y`。确认要发布的改动已在 master 上后：
+
+```bash
+git tag v1.2
+git push origin v1.2
+```
+
+推送 tag 后，`release` workflow 会自动：
+
+1. 校验 tag 格式，且该 commit 必须在 master 上
+2. 解析 `Dockerfile` 中 `BASE_IMAGE` 对应的 Ubuntu 快照 tag
+3. 以该快照为基础镜像构建 `linux/amd64,linux/arm64`，推送 `latest`、`vX.Y`、`vX.Y-noble`、`vX.Y-24.04`、`vX.Y-nobleYYYYMMDD[.N]`
+4. 创建 GitHub Release（自动生成 changelog）
+
+注意：
+
+- 已推送的 tag 不要移动或删除；修复问题请发布新版本
+- `latest` 只随正式发版移动；日常 master 推送只做构建验证，不推送镜像
+- workflow 会拒绝比当前最新 Release 更旧的版本号，避免误操作把 `latest` 回退
+- 需要仓库变量 `DOCKERHUB_IMAGE`（如 `jcbl1/ubuntu-machine`），以及 secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`
 
 ## 插件系统
 

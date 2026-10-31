@@ -1,0 +1,221 @@
+name: release
+
+# 正式发版：推送 vX.Y tag 后触发。
+#   git tag v1.0
+#   git push origin v1.0
+#
+# 发布同一 digest 的 tag：
+#   latest / vX.Y / vX.Y-noble / vX.Y-24.04 / vX.Y-nobleYYYYMMDD[.N]
+# 最后一个 tag 由基础镜像 ubuntu:24.04 当前 digest 对应的 ubuntu 快照 tag 解出。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag
+        id: check
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::invalid tag '$tag': expected vX.Y (e.g. v1.2)"
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::tag '$tag' points to a commit that is not on master"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Reject downgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEW_VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          latest_tag=$(gh release list --exclude-drafts --limit 1 \
+            --json tagName --jq '.[0].tagName // empty')
+          if [ -z "$latest_tag" ]; then
+            echo "no previous release; skip downgrade check"
+            exit 0
+          fi
+
+          latest="${latest_tag#v}"
+          if [[ ! "$latest" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::warning::latest release '$latest_tag' is not vX.Y; skip downgrade check"
+            exit 0
+          fi
+
+          IFS=. read -r new_major new_minor <<<"$NEW_VERSION"
+          IFS=. read -r old_major old_minor <<<"$latest"
+          new_major=$((10#$new_major))
+          new_minor=$((10#$new_minor))
+          old_major=$((10#$old_major))
+          old_minor=$((10#$old_minor))
+
+          if (( new_major < old_major || (new_major == old_major && new_minor < old_minor) )); then
+            echo "::error::version $NEW_VERSION is older than latest release $latest_tag"
+            exit 1
+          fi
+          echo "version $NEW_VERSION is not older than latest release $latest_tag"
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve base image and tags
+        id: meta
+        env:
+          IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${IMAGE:-}" ]; then
+            echo "::error::repository variable DOCKERHUB_IMAGE is not set"
+            exit 1
+          fi
+
+          # 从 Dockerfile 读取默认基础镜像（ARG BASE_IMAGE=...）
+          base_ref=$(sed -n 's/^ARG[[:space:]]\{1,\}BASE_IMAGE=//p' Dockerfile | head -n1)
+          base_ref="${base_ref:-ubuntu:24.04}"
+          base_ref="${base_ref%\"}"; base_ref="${base_ref#\"}"
+          base_ref="${base_ref%\'}"; base_ref="${base_ref#\'}"
+
+          base_repo="${base_ref%%:*}"
+          base_tag="${base_ref#*:}"
+          if [ "$base_tag" = "$base_ref" ]; then
+            base_tag=latest
+          fi
+          case "$base_repo" in
+            */*) hub_repo="$base_repo" ;;
+            *)   hub_repo="library/$base_repo" ;;
+          esac
+
+          case "$base_tag" in
+            20.04|focal)    base_version=20.04; codename=focal ;;
+            22.04|jammy)    base_version=22.04; codename=jammy ;;
+            24.04|noble)    base_version=24.04; codename=noble ;;
+            26.04|resolute) base_version=26.04; codename=resolute ;;
+            *)
+              echo "::error::unsupported Ubuntu base tag '$base_tag' (supported: 20.04/focal, 22.04/jammy, 24.04/noble, 26.04/resolute)"
+              exit 1
+              ;;
+          esac
+
+          digest=$(curl -fsSL "https://hub.docker.com/v2/repositories/${hub_repo}/tags/${base_tag}" \
+            | jq -r '.digest // empty')
+          if [ -z "$digest" ]; then
+            echo "::error::could not resolve digest for ${hub_repo}:${base_tag}"
+            exit 1
+          fi
+
+          # 找到与基础镜像 digest 相同的 ubuntu 快照 tag（noble-YYYYMMDD[.N]）
+          snapshot=""
+          page="https://hub.docker.com/v2/repositories/${hub_repo}/tags?page_size=100&name=${codename}-"
+          while [ -n "$page" ]; do
+            resp=$(curl -fsSL "$page")
+            found=$(jq -r --arg d "$digest" \
+              '.results[]? | select(.digest == $d) | .name' <<<"$resp" \
+              | sort -V | tail -n1)
+            if [ -n "$found" ]; then
+              snapshot="$found"
+              break
+            fi
+            page=$(jq -r '.next // empty' <<<"$resp")
+          done
+          if [ -z "$snapshot" ]; then
+            echo "::error::no ${codename}-YYYYMMDD[.N] tag found for ${hub_repo}:${base_tag} (${digest})"
+            exit 1
+          fi
+
+          base_image="${base_repo}:${snapshot}"
+          # noble-20261024.1 -> noble20261024.1（项目 tag 中 codename 与日期直接相连）
+          snapshot_suffix="${snapshot/-/}"
+          echo "resolved base image: $base_image"
+
+          echo "base_image=$base_image" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:latest"
+            echo "${IMAGE}:v${VERSION}"
+            echo "${IMAGE}:v${VERSION}-${codename}"
+            echo "${IMAGE}:v${VERSION}-${base_version}"
+            echo "${IMAGE}:v${VERSION}-${snapshot_suffix}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ steps.meta.outputs.base_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=ubuntu-machine
+            org.opencontainers.image.description=Ubuntu-based systemd container image with a provisioning plugin system
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.base.name=${{ steps.meta.outputs.base_image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, skipping"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          fi

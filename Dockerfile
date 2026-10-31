@@ -1,4 +1,6 @@
-FROM ubuntu:24.04
+# 基础镜像可通过 build-arg 覆盖，发版时会固定到 ubuntu 快照 tag，例如 ubuntu:noble-20261024.1
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE}
 
 ENV container container
 
