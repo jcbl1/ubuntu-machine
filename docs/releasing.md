@@ -42,6 +42,7 @@ The `release` workflow then:
 3. Builds `linux/amd64,linux/arm64` from that snapshot
 4. Pushes `latest`, `vX.Y`, `vX.Y-noble`, `vX.Y-24.04`, and `vX.Y-nobleYYYYMMDD[.N]`
 5. Creates a GitHub Release with generated notes
+6. Syncs the Docker Hub short description and overview from `.github/repository.json` and `docs/dockerhub.md`
 
 ## CI behavior
 

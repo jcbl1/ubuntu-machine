@@ -42,6 +42,7 @@ git push origin v1.2
 3. 以该快照构建 `linux/amd64,linux/arm64`
 4. 推送 `latest`、`vX.Y`、`vX.Y-noble`、`vX.Y-24.04`、`vX.Y-nobleYYYYMMDD[.N]`
 5. 创建 GitHub Release（自动生成 changelog）
+6. 从 `.github/repository.json` 和 `docs/dockerhub.md` 同步 Docker Hub 短描述与完整描述
 
 ## CI 行为
 

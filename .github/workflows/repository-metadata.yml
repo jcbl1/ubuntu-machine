@@ -29,6 +29,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
+          import os
           import re
           import sys
 
@@ -66,6 +67,19 @@ jobs:
               if topic in seen:
                   sys.exit(f"duplicate topic: {topic!r}")
               seen.add(topic)
+
+          dockerhub = data.get("dockerhub")
+          if dockerhub is not None:
+              if not isinstance(dockerhub, dict):
+                  sys.exit("dockerhub must be an object")
+              short = dockerhub.get("short_description")
+              if not isinstance(short, str) or not short.strip():
+                  sys.exit("dockerhub.short_description must be a non-empty string")
+              if len(short.encode("utf-8")) > 100:
+                  sys.exit("dockerhub.short_description must be at most 100 bytes")
+              readme = dockerhub.get("readme")
+              if not isinstance(readme, str) or not os.path.isfile(readme):
+                  sys.exit(f"dockerhub.readme does not exist: {readme!r}")
           PY
 
       - name: Check token

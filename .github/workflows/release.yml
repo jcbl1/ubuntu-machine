@@ -201,6 +201,29 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Read Docker Hub metadata
+        id: dockerhub
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          with open(".github/repository.json", encoding="utf-8") as f:
+              data = json.load(f)["dockerhub"]
+          print("short_description=" + data["short_description"])
+          print("readme=" + data["readme"])
+          PY
+
+      - name: Update Docker Hub description
+        # A description sync failure should not invalidate an already-pushed release.
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_IMAGE }}
+          short-description: ${{ steps.dockerhub.outputs.short_description }}
+          readme-filepath: ${{ steps.dockerhub.outputs.readme }}
+
   release:
     needs: [validate, publish]
     runs-on: ubuntu-latest

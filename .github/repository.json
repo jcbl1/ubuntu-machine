@@ -14,5 +14,9 @@
     "provisioning",
     "dotfiles",
     "opencode"
-  ]
+  ],
+  "dockerhub": {
+    "short_description": "systemd-enabled Ubuntu 24.04 base image for Apple container machines",
+    "readme": "docs/dockerhub.md"
+  }
 }
