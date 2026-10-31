@@ -12,8 +12,8 @@
 #     notifier 重复提醒；session.permissions 保留 TUI 的权限询问行为。
 # notifier 插件（@mohak34/opencode-notifier）单包同时支持 V1/V2：V2 下由
 # opencode 依据 jsonc 的 "plugins" 字段自动安装，终端组件由 CLI 自动加载。
-# 二进制缺失时回退官方安装脚本（用户级 ~/.opencode/bin，--no-modify-path，
-# PATH 由 040-zsh 的 .zshrc 负责）。
+# 二进制缺失或检测到 V1 时，用官方 V2 安装脚本替换为用户级
+# ~/.opencode/bin/opencode（--no-modify-path，PATH 由 040-zsh 负责）。
 #
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
 
@@ -145,12 +145,40 @@ chown "$TARGET_USER:$TARGET_GROUP" \
   "$TARGET_HOME/.config/opencode/cli.json" \
   "$TARGET_HOME/.config/opencode/opencode-notifier.json"
 
-# ---- 二进制兜底（镜像已含 /usr/local/bin/opencode 时自动跳过）----
-if ! command -v opencode >/dev/null 2>&1 && [[ ! -x "$TARGET_HOME/.opencode/bin/opencode" ]]; then
-  echo "090-opencode: 未检测到 opencode，安装用户级二进制"
-  as_user bash -c 'curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path'
+# ---- 二进制兜底（要求 V2；检测到 V1 时用官方 V2 安装器替换）----
+opencode_bin="$TARGET_HOME/.opencode/bin/opencode"
+if [[ ! -x "$opencode_bin" ]]; then
+  opencode_bin="$(command -v opencode 2>/dev/null || true)"
+fi
+
+version=""
+if [[ -n "$opencode_bin" && -x "$opencode_bin" ]]; then
+  version="$(as_user "$opencode_bin" --version 2>/dev/null | head -n1 || true)"
+fi
+
+major=0
+if [[ "$version" =~ ([0-9]+)\. ]]; then
+  major="${BASH_REMATCH[1]}"
+fi
+
+if [[ "$major" -ge 2 ]]; then
+  echo "090-opencode: 已安装 V2（$version），跳过安装"
 else
-  echo "090-opencode: opencode 二进制已存在，跳过安装"
+  if [[ -n "$version" ]]; then
+    echo "090-opencode: 检测到 OpenCode V1（$version），替换为 V2"
+  else
+    echo "090-opencode: 未检测到可用的 opencode，安装 V2"
+  fi
+
+  as_user bash -c 'curl -fsSL https://opencode.ai/v2/install | bash -s -- --no-modify-path'
+
+  opencode_bin="$TARGET_HOME/.opencode/bin/opencode"
+  version="$("$opencode_bin" --version 2>/dev/null | head -n1 || true)"
+  if [[ ! "$version" =~ ([0-9]+)\. ]] || (( BASH_REMATCH[1] < 2 )); then
+    echo "090-opencode: V2 安装后版本校验失败: ${version:-<empty>}" >&2
+    exit 1
+  fi
+  echo "090-opencode: 已安装 V2（$version）"
 fi
 
 echo "090-opencode: 完成（用户 $TARGET_USER；认证请手动执行: opencode auth login）"
