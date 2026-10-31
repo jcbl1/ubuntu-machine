@@ -1,0 +1,94 @@
+name: repository-metadata
+
+# Source of truth: .github/repository.json
+# Requires secret REPO_METADATA_TOKEN: a fine-grained PAT with
+# "Administration: Read and write" on this repository.
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/repository.json
+      - .github/workflows/repository-metadata.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-metadata
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate metadata
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          import sys
+
+          path = ".github/repository.json"
+          with open(path, encoding="utf-8") as f:
+              data = json.load(f)
+
+          if not isinstance(data, dict):
+              sys.exit("repository metadata must be a JSON object")
+
+          description = data.get("description")
+          homepage = data.get("homepage", "")
+          topics = data.get("topics", [])
+
+          if not isinstance(description, str) or not description.strip():
+              sys.exit("description must be a non-empty string")
+          if len(description) > 350:
+              sys.exit("description must be at most 350 characters")
+
+          if not isinstance(homepage, str):
+              sys.exit("homepage must be a string")
+          if homepage and not homepage.startswith(("https://", "http://")):
+              sys.exit("homepage must be empty or an http(s) URL")
+
+          if not isinstance(topics, list) or len(topics) > 20:
+              sys.exit("topics must be an array with at most 20 entries")
+          seen = set()
+          for topic in topics:
+              if not isinstance(topic, str):
+                  sys.exit("topics must contain strings only")
+              if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", topic):
+                  sys.exit(f"invalid topic: {topic!r}")
+              if len(topic) > 50:
+                  sys.exit(f"topic too long: {topic!r}")
+              if topic in seen:
+                  sys.exit(f"duplicate topic: {topic!r}")
+              seen.add(topic)
+          PY
+
+      - name: Check token
+        env:
+          GH_TOKEN: ${{ secrets.REPO_METADATA_TOKEN }}
+        run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing repository secret REPO_METADATA_TOKEN."
+            echo "::error::Create a fine-grained PAT with Administration: Read and write, then add it as a repository secret."
+            exit 1
+          fi
+
+      - name: Update repository metadata
+        env:
+          GH_TOKEN: ${{ secrets.REPO_METADATA_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          python3 -c 'import json; d=json.load(open(".github/repository.json")); print(json.dumps({"description": d["description"], "homepage": d.get("homepage", "")}))' \
+            | gh api --method PATCH "repos/${REPO}" --input - >/dev/null
+
+          python3 -c 'import json; d=json.load(open(".github/repository.json")); print(json.dumps({"names": d["topics"]}))' \
+            | gh api --method PUT "repos/${REPO}/topics" --input - >/dev/null
+
+          echo "Updated description, homepage, and topics for ${REPO}."

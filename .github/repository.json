@@ -1,0 +1,18 @@
+{
+  "description": "Ubuntu 24.04 + systemd base image for Apple container machines, with a symlink-driven Bash plugin system for provisioning tools and dotfiles.",
+  "homepage": "https://hub.docker.com/r/jcbl1/ubuntu-machine",
+  "topics": [
+    "apple-container",
+    "apple-silicon",
+    "container-machine",
+    "ubuntu",
+    "ubuntu-2404",
+    "systemd",
+    "oci-image",
+    "docker",
+    "dev-environment",
+    "provisioning",
+    "dotfiles",
+    "opencode"
+  ]
+}

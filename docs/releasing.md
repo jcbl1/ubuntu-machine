@@ -50,6 +50,10 @@ The `release` workflow then:
 - Tag pushes run the release workflow
 - The release workflow refuses a version older than the latest release, protecting `latest` from accidental downgrades
 
+## Repository metadata
+
+Description, homepage, and topics are maintained in `.github/repository.json` and applied by the `repository-metadata` workflow. The workflow requires a `REPO_METADATA_TOKEN` secret with repository administration write access; see [.github/README.md](../.github/README.md).
+
 ## Requirements
 
 - Repository variable `DOCKERHUB_IMAGE` (for example `jcbl1/ubuntu-machine`)

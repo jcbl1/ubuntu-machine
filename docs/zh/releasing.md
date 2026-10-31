@@ -50,6 +50,10 @@ git push origin v1.2
 - 推送 tag 时执行发版 workflow
 - 发版 workflow 拒绝比当前最新版本更旧的版本号，避免 `latest` 被误回退
 
+## 仓库 metadata
+
+描述、主页和 topics 由 `.github/repository.json` 维护，并通过 `repository-metadata` workflow 自动应用。workflow 需要 `REPO_METADATA_TOKEN` secret，且 token 具备仓库 Administration 写权限；详见 [.github/README.md](../../.github/README.md)。
+
 ## 要求
 
 - 仓库变量 `DOCKERHUB_IMAGE`（如 `jcbl1/ubuntu-machine`）
