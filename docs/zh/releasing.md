@@ -53,7 +53,7 @@ git push origin v1.2
 
 ## 仓库 metadata
 
-描述、主页和 topics 由 `.github/repository.json` 维护，并通过 `repository-metadata` workflow 自动应用。workflow 需要 `REPO_METADATA_TOKEN` secret，且 token 具备仓库 Administration 写权限；详见 [.github/README.md](../../.github/README.md)。
+描述、主页和 topics 由 `.github/repository.json` 维护，并通过 `repository-metadata` workflow 自动应用。workflow 需要 `REPO_METADATA_TOKEN` secret，且 token 具备仓库 Administration 写权限；详见 [.github/repository-metadata.md](../../.github/repository-metadata.md)。
 
 ## 要求
 

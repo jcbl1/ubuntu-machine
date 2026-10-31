@@ -53,7 +53,7 @@ The `release` workflow then:
 
 ## Repository metadata
 
-Description, homepage, and topics are maintained in `.github/repository.json` and applied by the `repository-metadata` workflow. The workflow requires a `REPO_METADATA_TOKEN` secret with repository administration write access; see [.github/README.md](../.github/README.md).
+Description, homepage, and topics are maintained in `.github/repository.json` and applied by the `repository-metadata` workflow. The workflow requires a `REPO_METADATA_TOKEN` secret with repository administration write access; see [.github/repository-metadata.md](../.github/repository-metadata.md).
 
 ## Requirements
 
