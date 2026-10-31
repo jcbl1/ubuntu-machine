@@ -1,5 +1,5 @@
 #!/bin/bash
-# 140-container-tidy - 容器周期性垃圾清理（systemd timer + 脚本，共 8 个文件）
+# 140-container-tidy - 容器周期性垃圾清理（systemd timer + 脚本，共 9 个文件）
 #
 # 从既有容器固化的手工部署：每周日 06:30 + 开机 15 分钟清理
 # /tmp 产物、journald、apt 缓存、用户级缓存。详细文档随包部署到
@@ -24,7 +24,7 @@ if [[ -z "$TIDY_USER" ]]; then
 fi
 
 # ============================================================
-# 1/8  /usr/local/bin/container-tidy-root.sh
+# 1/9  /usr/local/bin/container-tidy-root.sh
 # ============================================================
 cat > /usr/local/bin/container-tidy-root.sh <<'TIDY_ROOT_SH'
 #!/usr/bin/env bash
@@ -85,7 +85,7 @@ TIDY_ROOT_SH
 chmod 755 /usr/local/bin/container-tidy-root.sh
 
 # ============================================================
-# 2/8  /usr/local/bin/container-tidy-user.sh
+# 2/9  /usr/local/bin/container-tidy-user.sh
 # ============================================================
 cat > /usr/local/bin/container-tidy-user.sh <<'TIDY_USER_SH'
 #!/usr/bin/env bash
@@ -156,21 +156,20 @@ TIDY_USER_SH
 chmod 755 /usr/local/bin/container-tidy-user.sh
 
 # ============================================================
-# 3/8  /etc/systemd/system/container-tidy.timer
+# 3/9  /etc/systemd/system/container-tidy.timer
 # ============================================================
 cat > /etc/systemd/system/container-tidy.timer <<'TIDY_TIMER'
-# container-tidy.timer — 容器周期性垃圾清理调度器
-# 用途：每周日 06:30(+随机延迟) 与每次开机 15 分钟后触发 container-tidy.target，
-#       清理 /tmp 临时产物、journald、apt 缓存与用户级缓存。
+# container-tidy.timer — 每周清理调度器
+# 用途：每周日 06:30(+随机延迟) 触发 container-tidy.target。
+#       开机清理由独立的 container-tidy-boot.timer 负责。
 # 配置：/etc/default/container-tidy    日志：sudo journalctl -t container-tidy-*
 # 文档：/usr/share/doc/container-tidy/README.md
 [Unit]
-Description=Run container-tidy weekly and shortly after boot
+Description=Run container-tidy weekly
 Documentation=file:/usr/share/doc/container-tidy/README.md
 
 [Timer]
 OnCalendar=Sun *-*-* 06:30:00
-OnBootSec=15min
 Persistent=true
 RandomizedDelaySec=5min
 Unit=container-tidy.target
@@ -180,20 +179,42 @@ WantedBy=timers.target
 TIDY_TIMER
 
 # ============================================================
-# 4/8  /etc/systemd/system/container-tidy.target
+# 4/9  /etc/systemd/system/container-tidy-boot.timer
+# ============================================================
+cat > /etc/systemd/system/container-tidy-boot.timer <<'TIDY_BOOT_TIMER'
+# container-tidy-boot.timer — 开机清理调度器
+# 用途：每次开机 15 分钟后触发 container-tidy.target。
+#       与每周 timer 分开，避免 systemd 在 OnBootSec 触发后不再重排 OnCalendar。
+# 配置：/etc/default/container-tidy    日志：sudo journalctl -t container-tidy-*
+# 文档：/usr/share/doc/container-tidy/README.md
+[Unit]
+Description=Run container-tidy shortly after boot
+Documentation=file:/usr/share/doc/container-tidy/README.md
+
+[Timer]
+OnBootSec=15min
+RandomizedDelaySec=5min
+Unit=container-tidy.target
+
+[Install]
+WantedBy=timers.target
+TIDY_BOOT_TIMER
+
+# ============================================================
+# 5/9  /etc/systemd/system/container-tidy.target
 # ============================================================
 cat > /etc/systemd/system/container-tidy.target <<'TIDY_TARGET'
-# container-tidy.target — 聚合目标，由 container-tidy.timer 触发，
+# container-tidy.target — 聚合目标，由每周/开机两个 timer 触发，
 # 同时拉起用户级与 root 级两个清理 service（二者清理对象不相交，可并行）。
 # 文档：/usr/share/doc/container-tidy/README.md
 [Unit]
-Description=Weekly container tidy (aggregate user + root cleanup)
+Description=Container tidy (aggregate user + root cleanup)
 Documentation=file:/usr/share/doc/container-tidy/README.md
 Wants=container-tidy-user.service container-tidy-root.service
 TIDY_TARGET
 
 # ============================================================
-# 5/8  /etc/systemd/system/container-tidy-user.service
+# 6/9  /etc/systemd/system/container-tidy-user.service
 #      （__TIDY_USER__ 占位符 -> $TIDY_USER）
 # ============================================================
 cat > /tmp/container-tidy-user.service <<'TIDY_USER_UNIT'
@@ -219,7 +240,7 @@ sed -i "s/__TIDY_USER__/$TIDY_USER/g" /tmp/container-tidy-user.service
 mv /tmp/container-tidy-user.service /etc/systemd/system/container-tidy-user.service
 
 # ============================================================
-# 6/8  /etc/systemd/system/container-tidy-root.service
+# 7/9  /etc/systemd/system/container-tidy-root.service
 # ============================================================
 cat > /etc/systemd/system/container-tidy-root.service <<'TIDY_ROOT_UNIT'
 # container-tidy-root.service — root 级清理（仅做最小必要操作）。
@@ -240,7 +261,7 @@ IOSchedulingClass=idle
 TIDY_ROOT_UNIT
 
 # ============================================================
-# 7/8  /etc/default/container-tidy
+# 8/9  /etc/default/container-tidy
 # ============================================================
 cat > /etc/default/container-tidy <<'TIDY_CONF'
 # container-tidy 配置：由 unit 的 EnvironmentFile= 读取，同时被清理脚本 source。
@@ -257,7 +278,7 @@ DRY_RUN=0
 TIDY_CONF
 
 # ============================================================
-# 8/8  /usr/share/doc/container-tidy/README.md
+# 9/9  /usr/share/doc/container-tidy/README.md
 # ============================================================
 install -d -m 755 /usr/share/doc/container-tidy
 cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
@@ -269,13 +290,15 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 
 一组 systemd timer + 脚本，每周日凌晨与每次开机 15 分钟后自动清理：
 `/tmp` 遗留构建产物、已结束会话残留目录、journald 日志、apt 缓存、用户级缓存（pip/go-build/node）。
+每周与开机清理使用两个独立 timer，避免同一 timer 混用 `OnCalendar` 与 `OnBootSec`。
 预期每周回收几百 MB（视 opencode/Bun 使用频率浮动）。
 
-## 文件清单（8 个，由 ubuntu-machine 插件 140-container-tidy 部署）
+## 文件清单（9 个，由 ubuntu-machine 插件 140-container-tidy 部署）
 
 | 路径 | 职责 |
 |---|---|
-| `/etc/systemd/system/container-tidy.timer` | 调度：周日 06:30 + 开机 15 分钟（Persistent 补跑） |
+| `/etc/systemd/system/container-tidy.timer` | 每周调度：周日 06:30（Persistent 补跑） |
+| `/etc/systemd/system/container-tidy-boot.timer` | 开机调度：开机 15 分钟后 |
 | `/etc/systemd/system/container-tidy.target` | 聚合目标，同时拉起下面两个 service |
 | `/etc/systemd/system/container-tidy-user.service` | 以 `$TIDY_USER` 身份运行用户级清理 |
 | `/etc/systemd/system/container-tidy-root.service` | 以 root 运行 root 级清理 |
@@ -314,24 +337,28 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 | `APT_CLEAN` | yes | 是否执行 apt-get clean |
 | `DRY_RUN` | 0 | 1 = 只报告不删除（排障用） |
 
-改完配置执行：`sudo systemctl restart container-tidy.timer`
+改完配置执行：`sudo systemctl restart container-tidy.timer container-tidy-boot.timer`
 
 ## 运维速查
 
 ```bash
-systemctl cat container-tidy.timer                                  # 看定义
-systemctl list-timers container-tidy.timer                          # 下次运行时间
+systemctl cat container-tidy.timer container-tidy-boot.timer        # 看定义
+systemctl list-timers container-tidy.timer container-tidy-boot.timer # 下次运行时间
 sudo journalctl -t container-tidy-user -t container-tidy-root      # 清理日志
 sudo systemctl start container-tidy.target                         # 手动立即跑一次
-sudo systemctl disable --now container-tidy.timer                  # 停用
+sudo systemctl disable --now container-tidy.timer container-tidy-boot.timer  # 停用
 
-# 卸载（停用后删除全部 8 个文件 + systemctl daemon-reload）
+# 卸载（停用后删除全部 9 个文件 + systemctl daemon-reload）
 ```
 
 ## 已知问题
 
-- **NEXT 显示 `-`**：`OnBootSec` 在开机已久时启用会立即触发一次，systemd 偶发
-  不重排下次日历调度。`sudo systemctl restart container-tidy.timer` 即恢复。
+- **为什么要拆成两个 timer**：早期版本在同一个 timer 里同时写 `OnCalendar` 与
+  `OnBootSec`，systemd 255 在开机触发后会把下一次日历调度算成 `infinity`，
+  `systemctl list-timers` 显示 `NEXT=-`，导致之后不再每周执行。现在拆成
+  `container-tidy.timer`（每周）与 `container-tidy-boot.timer`（开机）两个单元。
+- `container-tidy-boot.timer` 在开机触发后 `NEXT` 显示 `-` 属正常：它是只跑一次的
+  开机 timer，不会再有下一次；每周任务由 `container-tidy.timer` 单独调度。
 - service 有意**不加** `PrivateTmp`（会让清理打到隔离 /tmp 上，无效）与
   `ProtectHome=read-only`（会挡住删缓存）。加固仅限 `NoNewPrivileges` +
   `Nice=19` + `IOSchedulingClass=idle`。
@@ -345,8 +372,12 @@ chmod 644 /usr/share/doc/container-tidy/README.md
 # ============================================================
 if [[ -d /run/systemd/system ]]; then
   systemctl daemon-reload
-  systemctl enable --now container-tidy.timer
-  echo "140-container-tidy: timer 已启用（用户级清理身份: $TIDY_USER）"
+  systemctl enable container-tidy.timer container-tidy-boot.timer
+  # 重启每周 timer 以强制重新计算下一次日历调度（修复旧版 NEXT=- 的状态）
+  systemctl restart container-tidy.timer
+  # 开机 timer 若未运行则启动；若已运行则保持不变
+  systemctl start container-tidy-boot.timer
+  echo "140-container-tidy: timers 已启用（每周 + 开机；用户级清理身份: $TIDY_USER）"
 else
   echo "140-container-tidy: systemd 未运行（构建期？），文件已就位，未 enable"
 fi
