@@ -1,10 +1,11 @@
 #!/bin/bash
-# 080-private - 私密文件落位（gitconfig / authorized_keys）
+# 080-private - 私密文件落位（gitconfig / authorized_keys / bot .env / service.json）
 #
 # 私密内容放在 plugins/private/（本地目录，不入库，见 .gitignore）：
 #   private/gitconfig                   -> ~/.gitconfig          (644)
 #   private/authorized_keys             -> ~/.ssh/authorized_keys (600, .ssh 700)
 #   private/opencode-telegram-bot.env   -> ~/.config/opencode-telegram-bot/.env (600)
+#   private/opencode-service.json       -> ~/.config/opencode/service.json (600)
 #
 # 缺哪个文件就跳过哪项，绝不报错。绝不触碰 .ssh 私钥与 opencode auth.json。
 #
@@ -53,6 +54,20 @@ if [[ -s "$private_root/opencode-telegram-bot.env" ]]; then
   echo "080-private: 已安装 opencode-telegram-bot .env"
 else
   echo "080-private: private/opencode-telegram-bot.env 不存在，跳过"
+fi
+
+# ---- opencode service.json ----
+# 固化后台服务的监听地址/端口/代理与 API 密码；090/095 在其后执行，
+# 因此新建容器首次启动服务时即采用这里的配置。
+if [[ -s "$private_root/opencode-service.json" ]]; then
+  install -d -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$TARGET_HOME/.config/opencode"
+  install -m 600 -o "$TARGET_USER" -g "$TARGET_GROUP" \
+    "$private_root/opencode-service.json" \
+    "$TARGET_HOME/.config/opencode/service.json"
+  echo "080-private: 已安装 opencode service.json"
+else
+  echo "080-private: private/opencode-service.json 不存在，跳过"
 fi
 
 echo "080-private: 完成（用户 $TARGET_USER）"

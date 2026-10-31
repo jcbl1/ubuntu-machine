@@ -79,7 +79,7 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `050-tmux` | `~/.tmux.conf`, tpm, and headless plugin installation | Runtime |
 | `060-yazi` | yazi/ya binaries from GitHub releases and `yazi.toml` | Runtime |
 | `070-dotfiles` | btop config, ncdu config, and `~/ncdu-exclude.txt` | Runtime |
-| `080-private` | Installs gitconfig, authorized_keys, and bot `.env` from `private/` | Runtime |
+| `080-private` | Installs gitconfig, authorized_keys, bot `.env`, and `service.json` from `private/` | Runtime |
 | `090-opencode` | OpenCode V2 user config (`opencode.jsonc`, `cli.json`, notifier) | Runtime |
 | `095-opencode-server` | `opencode-server.service` for the OpenCode background server | Runtime |
 | `100-nvm` | nvm (no Node version preinstalled) | Runtime |

@@ -23,9 +23,9 @@
 - 权限使用有序的 `permissions` 数组，动作包括 `shell`、`webfetch`、`websearch`
 - Web search 使用 `websearch` 对象配置
 
-以下属于运行时状态，不由插件管理：
+以下属于运行时状态（插件不完全管理）：
 
-- `~/.config/opencode/service.json`（端口、密码、代理环境）
+- `~/.config/opencode/service.json`（监听地址/端口、密码、代理环境；可选由 `080-private` 从 `plugins/private/opencode-service.json` 落位）
 - `~/.local/share/opencode/` 下的会话数据
 - notifier 状态文件
 

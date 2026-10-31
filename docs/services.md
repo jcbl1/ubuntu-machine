@@ -20,13 +20,17 @@ opencode service stop    # ExecStop
 
 It runs as the target user and prefers `~/.opencode/bin/opencode`, falling back to an `opencode` binary on `PATH`.
 
-The server's port, password, and proxy environment live in `~/.config/opencode/service.json`. This file is runtime state and is not provisioned by the plugin, so secrets do not enter the repository. Configure proxy values with:
+The server's port, hostname, password, and proxy environment live in `~/.config/opencode/service.json`. `080-private` optionally provisions this file from `plugins/private/opencode-service.json` (600, not in git), so the same local API password and proxy settings apply to every container. Without that file, OpenCode generates a random password on first start. It listens on `127.0.0.1:49374` by default; set `hostname` to `0.0.0.0` to accept connections from the host (the API still requires the password). Configure the managed values with:
 
 ```bash
-opencode service set env http_proxy  http://HOST:PORT
-opencode service set env https_proxy http://HOST:PORT
-opencode service set env all_proxy   http://HOST:PORT
+opencode service set hostname 0.0.0.0
+opencode service set port 49374
+opencode service set env HTTP_PROXY  http://HOST:PORT
+opencode service set env HTTPS_PROXY http://HOST:PORT
+opencode service set env NO_PROXY    localhost,127.0.0.1,::1
 ```
+
+`NO_PROXY` must include the loopback addresses: the CLI talks to the background server over local HTTP. Changing any of these values stops the running service, so start it again afterwards.
 
 `ExecStart` is idempotent: OpenCode reuses an already running healthy backend. After upgrading the binary, restart the unit to switch backends:
 
@@ -45,7 +49,7 @@ sudo systemctl restart opencode-server.service
 
 The unit runs `run-bot.sh` as the target user and restarts on failure. It is enabled and started only when `~/.config/opencode-telegram-bot/.env` exists, which avoids a restart loop before credentials are configured. The `.env` file is normally provisioned by `080-private` from `plugins/private/opencode-telegram-bot.env`.
 
-The launcher uses `proxychains4` (from `045-proxychains`) and nvm (from `100-nvm`).
+The launcher uses nvm (from `100-nvm`) to install and select the pinned Node version. Telegram traffic goes through the bot's own `TELEGRAM_PROXY_URL` setting in `.env`; the launcher no longer wraps the process in `proxychains4`, because that also proxied requests to the local OpenCode API.
 
 ## Cleanup timers
 

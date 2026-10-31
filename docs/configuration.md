@@ -23,9 +23,9 @@ OpenCode credentials created by `opencode auth login` are not part of this repos
 - Permissions use an ordered `permissions` array with `shell`, `webfetch`, and `websearch` actions
 - Web search is configured with the `websearch` object
 
-The following are runtime state and are not managed by the plugin:
+The following are runtime state (not fully managed by the plugin):
 
-- `~/.config/opencode/service.json` (server port, password, proxy environment)
+- `~/.config/opencode/service.json` (server hostname/port, password, proxy environment; optionally seeded by `080-private` from `plugins/private/opencode-service.json`)
 - session data under `~/.local/share/opencode/`
 - notifier state files
 

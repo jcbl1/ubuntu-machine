@@ -79,7 +79,7 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `050-tmux` | `~/.tmux.conf`、tpm 及插件无头安装 | 运行期 |
 | `060-yazi` | yazi/ya 二进制（GitHub release）与 `yazi.toml` | 运行期 |
 | `070-dotfiles` | btop 配置、ncdu 配置与 `~/ncdu-exclude.txt` | 运行期 |
-| `080-private` | 从 `private/` 落位 gitconfig、authorized_keys、bot `.env` | 运行期 |
+| `080-private` | 从 `private/` 落位 gitconfig、authorized_keys、bot `.env`、`service.json` | 运行期 |
 | `090-opencode` | OpenCode V2 用户配置（`opencode.jsonc`、`cli.json`、notifier） | 运行期 |
 | `095-opencode-server` | `opencode-server.service`（OpenCode 后台服务） | 运行期 |
 | `100-nvm` | nvm（不预装 Node 版本） | 运行期 |
