@@ -1,0 +1,82 @@
+#!/bin/bash
+# 095-opencode-server - opencode V2 后台服务的 systemd unit
+#
+# 部署 /etc/systemd/system/opencode-server.service，以 TARGET_USER 身份运行
+# `opencode service start` / `opencode service stop`。opencode 自身的 service
+# manager 会复用已运行且健康的后端，因此 ExecStart 是幂等的；升级 opencode
+# 后执行 `sudo systemctl restart opencode-server.service` 才会切换到新版本。
+#
+# 服务配置（端口、密码、代理环境变量）在用户级
+# ~/.config/opencode/service.json，由 opencode 自己管理，本插件不落位，
+# 避免把密码写进仓库。需要代理时可用：
+#   opencode service set env http_proxy  http://HOST:PORT
+#   opencode service set env https_proxy http://HOST:PORT
+#   opencode service set env all_proxy   http://HOST:PORT
+#
+# 依赖：090-opencode（提供用户级二进制，或系统中已有的 opencode）。
+# 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
+# 仅在 systemd 运行时 enable --now；构建期只落文件。
+
+set -euo pipefail
+
+if [[ -z "${TARGET_USER:-}" ]] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "095-opencode-server: 无目标用户（构建期？），跳过"
+  exit 0
+fi
+
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+
+# 优先用户级二进制（090-opencode / 官方安装脚本），其次 PATH 中的系统级二进制
+opencode_bin="$TARGET_HOME/.opencode/bin/opencode"
+if [[ ! -x "$opencode_bin" ]]; then
+  opencode_bin="$(command -v opencode || true)"
+fi
+if [[ -z "$opencode_bin" || ! -x "$opencode_bin" ]]; then
+  echo "095-opencode-server: 未找到 opencode 二进制，请先启用 090-opencode" >&2
+  exit 1
+fi
+
+unit_tmp="$(mktemp)"
+cat > "$unit_tmp" <<'UNIT'
+# opencode-server.service — OpenCode V2 后台服务
+# 由 ubuntu-machine/plugins/available/095-opencode-server 部署。
+# 服务自身的端口/密码/代理配置见 ~/.config/opencode/service.json。
+[Unit]
+Description=OpenCode V2 background service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=__TARGET_USER__
+Environment=HOME=__TARGET_HOME__
+Environment=PATH=__OPENCODE_DIR__:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=__TARGET_HOME__
+
+# 幂等：opencode 的 service manager 会复用已运行且健康的 V2 后端。
+ExecStart=__OPENCODE_BIN__ service start
+# 升级 opencode 后：systemctl restart opencode-server.service
+ExecStop=__OPENCODE_BIN__ service stop
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sed -i \
+  -e "s|__TARGET_USER__|$TARGET_USER|g" \
+  -e "s|__TARGET_HOME__|$TARGET_HOME|g" \
+  -e "s|__OPENCODE_BIN__|$opencode_bin|g" \
+  -e "s|__OPENCODE_DIR__|$(dirname "$opencode_bin")|g" \
+  "$unit_tmp"
+
+install -m 644 -o root -g root "$unit_tmp" /etc/systemd/system/opencode-server.service
+rm -f "$unit_tmp"
+
+if [[ -d /run/systemd/system ]]; then
+  systemctl daemon-reload
+  systemctl enable --now opencode-server.service
+  echo "095-opencode-server: 已启用（用户 $TARGET_USER，二进制 $opencode_bin）"
+else
+  echo "095-opencode-server: systemd 未运行（构建期？），文件已就位，未 enable"
+fi

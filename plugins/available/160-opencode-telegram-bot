@@ -11,6 +11,11 @@
 #   ~/opencode-telegram-bot/run-bot.sh   启动器（nvm 定位 node -> PATH -> proxychains npx）
 #   ~/opencode-telegram-bot/.nvmrc       使用的 Node 版本（默认 v22.23.2）
 #   ~/.config/opencode-telegram-bot/     运行数据目录（700，放 .env / settings.json / logs）
+#   /etc/systemd/system/opencode-telegram-bot.service
+#                                        systemd unit（依赖 095-opencode-server）
+#
+# 仅当 .env 已存在时才 enable/启动服务，避免无密钥时反复重启；unit 文件始终落位。
+# systemd 未运行时（构建期）只落文件。
 #
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
 
@@ -69,5 +74,54 @@ RUNBOT
 install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
   /tmp/opencode-telegram-bot-run.sh "$TARGET_HOME/opencode-telegram-bot/run-bot.sh"
 rm -f /tmp/opencode-telegram-bot-run.sh
+
+# ---- systemd unit ----
+unit_tmp="$(mktemp)"
+cat > "$unit_tmp" <<'UNIT'
+# opencode-telegram-bot.service — 从 Telegram 远程驱动 opencode
+# 由 ubuntu-machine/plugins/available/160-opencode-telegram-bot 部署。
+[Unit]
+Description=OpenCode Telegram Bot
+After=network-online.target opencode-server.service
+Wants=network-online.target opencode-server.service
+
+[Service]
+Type=simple
+User=__TARGET_USER__
+Environment=HOME=__TARGET_HOME__
+Environment=NVM_DIR=__TARGET_HOME__/.nvm
+WorkingDirectory=__TARGET_HOME__/opencode-telegram-bot
+ExecStart=__TARGET_HOME__/opencode-telegram-bot/run-bot.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sed -i \
+  -e "s|__TARGET_USER__|$TARGET_USER|g" \
+  -e "s|__TARGET_HOME__|$TARGET_HOME|g" \
+  "$unit_tmp"
+install -m 644 -o root -g root "$unit_tmp" /etc/systemd/system/opencode-telegram-bot.service
+rm -f "$unit_tmp"
+
+env_file="$TARGET_HOME/.config/opencode-telegram-bot/.env"
+if [[ -d /run/systemd/system ]]; then
+  systemctl daemon-reload
+  if [[ -s "$env_file" ]]; then
+    systemctl enable opencode-telegram-bot.service
+    if systemctl is-active --quiet opencode-telegram-bot.service; then
+      systemctl restart opencode-telegram-bot.service
+    else
+      systemctl start opencode-telegram-bot.service
+    fi
+    echo "160-opencode-telegram-bot: 服务已启用（用户 $TARGET_USER）"
+  else
+    echo "160-opencode-telegram-bot: 未找到 $env_file，unit 已落位但未启用/启动" >&2
+  fi
+else
+  echo "160-opencode-telegram-bot: systemd 未运行（构建期？），文件已就位，未 enable"
+fi
 
 echo "160-opencode-telegram-bot: 完成（用户 $TARGET_USER；密钥请放 plugins/private/opencode-telegram-bot.env，由 080-private 落位）"
