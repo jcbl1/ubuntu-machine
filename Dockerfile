@@ -6,10 +6,21 @@ ENV container container
 
 RUN apt-get update && \
     apt-get install -y \
-    dbus systemd openssh-server net-tools iproute2 iputils-ping curl wget vim-tiny man sudo && \
+    dbus systemd net-tools iproute2 iputils-ping curl wget vim-tiny man sudo \
+    lsb-release libpam-systemd ncurses-term xauth && \
+    apt-get install -y --no-install-recommends openssh-server && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    yes | unminimize
+    yes | unminimize && \
+    for p in ssh-import-id python3-launchpadlib python3-jwt \
+             python3-cryptography python3-oauthlib python3-httplib2; do \
+      if dpkg -s "$p" >/dev/null 2>&1; then \
+        echo "ERROR: vulnerable package must not be installed: $p" >&2; \
+        exit 1; \
+      fi; \
+    done && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN >/etc/machine-id
 RUN >/var/lib/dbus/machine-id
