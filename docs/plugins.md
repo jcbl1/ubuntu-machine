@@ -34,6 +34,7 @@ The `enabled/` directory is local state, not part of the repository.
 - Never write into the plugin directory; at build time it is mounted read-only
 - Idempotent: safe to run repeatedly
 - User-level plugins check `TARGET_USER` and skip when it is empty (build time)
+- Machine-only plugins check for `/sbin.machine/init` or `/etc/.machine.initialized` and skip otherwise; see `170-swapfile`
 
 The runner exports:
 
@@ -90,10 +91,13 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `150-java` | Eclipse Temurin 17 JDK from the Adoptium apt repository | Build/runtime |
 | `155-uv` | uv in `~/.local/bin` | Runtime |
 | `160-opencode-telegram-bot` | Telegram bot launcher and `opencode-telegram-bot.service` | Runtime |
+| `170-swapfile` | Opt-in swapfile on the machine rootfs; enables it now and installs `machine-swapfile.service` for later boots | Runtime (machine only) |
 
 ## Build-time behavior
 
 At build time there is no target user, so user-level plugins (`040`, `050`, `060`, `070`, `080`, `090`, `095`, `100`, `110`, `155`, `160`) skip automatically. They run when `run-plugins` is executed inside a created container.
+
+`170-swapfile` is machine-only: it skips at build time and in regular containers, and only runs inside an Apple container machine. This prevents a swapfile from being baked into the image.
 
 ## Related documents
 

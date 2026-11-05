@@ -38,7 +38,12 @@ The following are runtime state (not fully managed by the plugin):
 | `YAZI_VERSION` | `060-yazi` | Pin a yazi release tag instead of latest |
 | `INSTALL_TAURI_CLI` | `110-rust` | Set to `0` to skip the slow tauri-cli build |
 | `TELEGRAM_BOT_NODE_VERSION` | `160-opencode-telegram-bot` | Node version used by the bot (default `v22.23.2`) |
+| `SWAPFILE_SIZE` | `170-swapfile` | Swapfile size for a container machine (default `4G`; e.g. `512M`, `8G`) |
+| `SWAPFILE_PATH` | `170-swapfile` | Swapfile path (default `/swapfile`); must be on an ext4/xfs filesystem, not `/Users` |
+| `SWAPFILE_DRY_RUN` | `170-swapfile` | Set to `1` to print the planned actions without changing anything |
 | `http_proxy`, `https_proxy`, `all_proxy` | `045`, downloads, package managers | Standard proxy variables; `run-plugins --proxy` exports all three |
+
+`170-swapfile` installs `machine-swapfile.service` for boot-time activation. Do not use `/etc/fstab` for swap in a container machine: systemd treats the machine as a container and ignores fstab swap entries.
 
 `run-plugins` also supports `--target-user` for containers where the default user detection is not appropriate.
 

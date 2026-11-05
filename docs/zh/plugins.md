@@ -34,6 +34,7 @@ rm plugins/enabled/050-my-plugin                                 # 禁用
 - 不要写入插件目录；构建期该目录以只读方式挂载
 - 幂等：可重复执行
 - 用户级插件检查 `TARGET_USER`，为空时跳过（构建期）
+- 仅 machine 插件检查 `/sbin.machine/init` 或 `/etc/.machine.initialized`，否则跳过；参见 `170-swapfile`
 
 执行器注入：
 
@@ -90,10 +91,13 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `150-java` | Eclipse Temurin 17 JDK（Adoptium apt 源） | 构建/运行 |
 | `155-uv` | uv（用户级，`~/.local/bin`） | 运行期 |
 | `160-opencode-telegram-bot` | Telegram bot 启动器 + `opencode-telegram-bot.service` | 运行期 |
+| `170-swapfile` | 为 container machine 的 rootfs 可选创建 swapfile；立即启用并安装 `machine-swapfile.service` 供后续启动使用 | 运行期（仅 machine） |
 
 ## 构建期行为
 
 构建期没有目标用户，因此用户级插件（`040`、`050`、`060`、`070`、`080`、`090`、`095`、`100`、`110`、`155`、`160`）会自动跳过。容器创建后执行 `run-plugins` 时才会落位。
+
+`170-swapfile` 仅在 container machine 内运行；构建期和普通容器内会自动跳过，避免把 swapfile 写进镜像。
 
 ## 相关文档
 

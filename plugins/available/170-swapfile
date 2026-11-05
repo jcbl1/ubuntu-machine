@@ -1,0 +1,261 @@
+#!/bin/bash
+# 170-swapfile - 为 container machine 创建并启用 swapfile（运行期、可选）
+#
+# 仅在 container machine 运行期执行；构建期和普通容器内自动跳过，避免把
+# swapfile 写进镜像。插件本身仍留在仓库 checkout 中，由 run-plugins 执行。
+#
+# 可用环境变量：
+#   SWAPFILE_SIZE      swapfile 大小，默认 4G（支持 512M、4G）
+#   SWAPFILE_PATH      路径，默认 /swapfile；必须在 machine 内的 ext4/xfs 上，不能放 /Users
+#   SWAPFILE_DRY_RUN   设为 1 只打印动作，不做修改
+#
+# 幂等：已启用则跳过；已有文件会校验大小和 swap magic，不会覆盖普通文件。
+# 持久化：安装 machine-swapfile.service（oneshot），每次开机执行 swapon。
+# 不要只写 /etc/fstab：container machine 中 systemd 会把环境识别为容器，
+# 并忽略 fstab 里的 swap 条目。
+#
+# 注意：swap 只是 OOM 缓冲，不能替代 container machine set memory=...。
+# 当前 machine 内核需要 CONFIG_SWAP=y；默认 kernel 满足，但自定义 kernel 需自查。
+
+set -euo pipefail
+
+TAG="170-swapfile"
+SWAPFILE_SIZE="${SWAPFILE_SIZE:-4G}"
+SWAPFILE_PATH="${SWAPFILE_PATH:-/swapfile}"
+SWAPFILE_DRY_RUN="${SWAPFILE_DRY_RUN:-0}"
+UNIT_PATH="/etc/systemd/system/machine-swapfile.service"
+unit_tmp=""
+
+log() { echo "$TAG: $*"; }
+warn() { echo "$TAG: warning: $*" >&2; }
+die() { echo "$TAG: error: $*" >&2; exit 1; }
+
+if [[ $EUID -ne 0 ]]; then
+  die "请用 sudo 运行"
+fi
+
+# 构建期没有 /sbin.machine；普通容器也没有。只有 container machine 才有。
+if [[ ! -e /sbin.machine/init && ! -e /etc/.machine.initialized ]]; then
+  log "非 container machine（构建期或普通容器），跳过"
+  exit 0
+fi
+
+# 路径必须是简单的绝对路径，避免 fstab/systemd 转义问题。
+[[ "$SWAPFILE_PATH" == /* ]] || die "SWAPFILE_PATH 必须是绝对路径: $SWAPFILE_PATH"
+[[ "$SWAPFILE_PATH" != */ ]] || die "SWAPFILE_PATH 不能以 / 结尾: $SWAPFILE_PATH"
+[[ "$SWAPFILE_PATH" =~ ^/[A-Za-z0-9/_.-]+$ ]] ||
+  die "SWAPFILE_PATH 只允许绝对路径和字母、数字、/_.-: $SWAPFILE_PATH"
+
+swap_dir="$(dirname "$SWAPFILE_PATH")"
+[[ -d "$swap_dir" ]] || die "父目录不存在: $swap_dir"
+
+# /Users 是 virtiofs；tmpfs/overlay 也不适合 swapfile。
+fstype="$(findmnt -no FSTYPE --target "$swap_dir" 2>/dev/null || true)"
+case "$fstype" in
+  ext4 | xfs) ;;
+  "") warn "无法确定 $swap_dir 的文件系统类型，继续" ;;
+  *) die "$swap_dir 位于 $fstype；swapfile 需要 ext4/xfs（不能放 /Users 等 virtiofs）" ;;
+esac
+
+# 大小解析：支持 512M、4G。
+size_num="${SWAPFILE_SIZE%[GgMm]}"
+size_unit="${SWAPFILE_SIZE: -1}"
+[[ "$size_num" =~ ^[0-9]+$ ]] || die "无效的 SWAPFILE_SIZE: $SWAPFILE_SIZE（示例: 512M、4G）"
+size_num=$((10#$size_num))
+((size_num > 0)) || die "SWAPFILE_SIZE 必须大于 0"
+case "$size_unit" in
+  g | G) size_mb=$((size_num * 1024)) ;;
+  m | M) size_mb=$((size_num)) ;;
+  *) die "无效的 SWAPFILE_SIZE: $SWAPFILE_SIZE（示例: 512M、4G）" ;;
+esac
+size_bytes=$((size_mb * 1024 * 1024))
+
+# 内核必须支持 swap；/proc/config.gz 不存在时交给 swapon 报错。
+# 不用 grep -q：在 set -o pipefail 下 zcat 可能因 SIGPIPE 让管道返回 141。
+if [[ -r /proc/config.gz ]] && command -v zcat >/dev/null 2>&1; then
+  if ! zcat /proc/config.gz 2>/dev/null | grep -E '^CONFIG_SWAP=[ym]' >/dev/null; then
+    die "当前内核未启用 CONFIG_SWAP，无法使用 swapfile"
+  fi
+fi
+
+# cgroup 把 swap 限制为 0 时，swapon 可能成功但换出会失败。
+if [[ -r /sys/fs/cgroup/memory.swap.max ]]; then
+  swap_max="$(cat /sys/fs/cgroup/memory.swap.max 2>/dev/null || true)"
+  if [[ "$swap_max" == "0" ]]; then
+    warn "cgroup memory.swap.max=0，swap 可能无法实际生效"
+  fi
+fi
+
+swapon_bin="$(command -v swapon || true)"
+swapoff_bin="$(command -v swapoff || true)"
+[[ -n "$swapon_bin" ]] || die "找不到 swapon"
+[[ -n "$swapoff_bin" ]] || die "找不到 swapoff"
+
+swap_is_active() {
+  local names
+  names="$(swapon --show --noheadings 2>/dev/null | awk '{ print $1 }' || true)"
+  grep -Fxq "$SWAPFILE_PATH" <<<"$names"
+}
+
+created=0
+cleanup_partial() {
+  if [[ -n "$unit_tmp" ]]; then
+    rm -f "$unit_tmp"
+  fi
+  if ((created)); then
+    if ! swap_is_active; then
+      rm -f "$SWAPFILE_PATH"
+    fi
+  fi
+  return 0
+}
+trap cleanup_partial EXIT
+
+ensure_service() {
+  if [[ "$SWAPFILE_DRY_RUN" == "1" ]]; then
+    log "[dry-run] 将安装并 enable $UNIT_PATH"
+    return 0
+  fi
+
+  unit_tmp="$(mktemp)"
+  cat >"$unit_tmp" <<UNIT
+[Unit]
+Description=Activate container machine swapfile
+ConditionPathExists=$SWAPFILE_PATH
+ConditionPathExists=/sbin.machine/init
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$swapon_bin $SWAPFILE_PATH
+ExecStop=-$swapoff_bin $SWAPFILE_PATH
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  install -m 644 -o root -g root "$unit_tmp" "$UNIT_PATH"
+  rm -f "$unit_tmp"
+  unit_tmp=""
+
+  if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+    if ! systemctl enable machine-swapfile.service >/dev/null; then
+      die "systemctl enable machine-swapfile.service 失败"
+    fi
+    log "已安装并 enable machine-swapfile.service"
+  else
+    warn "systemd 未运行；unit 已写入但未 enable"
+  fi
+}
+
+activate_swap() {
+  if [[ "$SWAPFILE_DRY_RUN" == "1" ]]; then
+    log "[dry-run] 将通过 machine-swapfile.service 启用 $SWAPFILE_PATH"
+    return 0
+  fi
+
+  if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+    if ! systemctl restart machine-swapfile.service; then
+      warn "systemctl restart machine-swapfile.service 失败，改用 swapon"
+    fi
+  fi
+  if ! swap_is_active; then
+    swapon "$SWAPFILE_PATH"
+  fi
+}
+
+is_active=0
+if swap_is_active; then
+  is_active=1
+fi
+
+if ((is_active)); then
+  log "swapfile 已启用: $SWAPFILE_PATH"
+  ensure_service
+  if [[ "$SWAPFILE_DRY_RUN" != "1" ]]; then
+    swapon --show
+    free -h
+  fi
+  exit 0
+fi
+
+# 已有文件：校验大小和 swap magic，绝不覆盖普通文件。
+if [[ -e "$SWAPFILE_PATH" ]]; then
+  [[ -f "$SWAPFILE_PATH" ]] || die "$SWAPFILE_PATH 存在但不是普通文件"
+  current_size="$(stat -c %s "$SWAPFILE_PATH")"
+  if ((current_size != size_bytes)); then
+    die "已有 $SWAPFILE_PATH 大小 $current_size != 请求的 $size_bytes；请先 swapoff 并删除后重试"
+  fi
+
+  page_size="$(getconf PAGE_SIZE 2>/dev/null || echo 4096)"
+  [[ "$page_size" =~ ^[0-9]+$ ]] || page_size=4096
+  ((page_size > 10)) || page_size=4096
+  magic_offset=$((page_size - 10))
+  # tr -d '\0' 避免 Bash 对二进制命令替换发出 "ignored null byte" 警告。
+  magic="$(dd if="$SWAPFILE_PATH" bs=1 skip="$magic_offset" count=10 2>/dev/null | tr -d '\0' || true)"
+  if [[ "$magic" != "SWAPSPACE2" && "$magic" != "SWAP-SPACE" ]]; then
+    die "$SWAPFILE_PATH 已存在但不是 swapfile；拒绝覆盖"
+  fi
+  log "复用已有 swapfile: $SWAPFILE_PATH"
+else
+  guest_avail_kb="$(df -Pk "$swap_dir" | awk 'NR == 2 { print $4 }')" ||
+    die "无法确定 $swap_dir 的可用空间"
+  [[ -n "$guest_avail_kb" ]] || die "无法确定 $swap_dir 的可用空间"
+  required_kb=$((size_mb * 1024 + 1048576)) # 额外留 1G 余量
+  ((guest_avail_kb >= required_kb)) ||
+    die "guest 可用空间不足: ${guest_avail_kb}KB < ${required_kb}KB"
+
+  # Mac 侧空间：优先 /Users/<user>，否则找第一个 /Users/* virtiofs 挂载点。
+  host_home=""
+  for u in "${SUDO_USER:-}" "${TARGET_USER:-}"; do
+    if [[ -n "$u" && -d "/Users/$u" ]]; then
+      host_home="/Users/$u"
+      break
+    fi
+  done
+  if [[ -z "$host_home" ]]; then
+    host_home="$(findmnt -rno TARGET -t virtiofs 2>/dev/null | awk -F/ '$2 == "Users" && NF >= 3 { print; exit }' || true)"
+  fi
+  if [[ -n "$host_home" && -d "$host_home" ]]; then
+    host_avail_kb="$(df -Pk "$host_home" | awk 'NR == 2 { print $4 }')" ||
+      die "无法确定 $host_home 的可用空间"
+    if [[ -n "$host_avail_kb" ]]; then
+      ((host_avail_kb >= required_kb)) ||
+        die "Mac 侧可用空间不足: ${host_avail_kb}KB < ${required_kb}KB（$host_home）"
+    fi
+  else
+    warn "无法确定 Mac 侧可用空间（home mount 可能是 none），继续"
+  fi
+
+  if [[ "$SWAPFILE_DRY_RUN" == "1" ]]; then
+    log "[dry-run] 将创建 $SWAPFILE_PATH（${size_mb}MiB），mkswap 并安装开机服务"
+    ensure_service
+    log "[dry-run] 将通过 machine-swapfile.service 启用 $SWAPFILE_PATH"
+    exit 0
+  fi
+
+  log "创建 swapfile: $SWAPFILE_PATH（${size_mb}MiB）"
+  created=1
+  if ! fallocate -l "${size_mb}M" "$SWAPFILE_PATH" 2>/dev/null; then
+    warn "fallocate 失败，改用 dd"
+    rm -f "$SWAPFILE_PATH"
+    dd if=/dev/zero of="$SWAPFILE_PATH" bs=1M count="$size_mb" status=progress
+  fi
+  chmod 600 "$SWAPFILE_PATH"
+  mkswap "$SWAPFILE_PATH"
+fi
+
+if [[ "$SWAPFILE_DRY_RUN" == "1" ]]; then
+  ensure_service
+  log "[dry-run] 将通过 machine-swapfile.service 启用 $SWAPFILE_PATH"
+  exit 0
+fi
+
+ensure_service
+activate_swap
+created=0
+
+log "已启用 swapfile: $SWAPFILE_PATH"
+swapon --show
+free -h
