@@ -48,6 +48,32 @@ RUN set -eux; \
 RUN >/etc/machine-id
 RUN >/var/lib/dbus/machine-id
 
+# The openssh-server package generates host keys during installation. Baking
+# shared private host keys into a public image allows host impersonation, so
+# remove them and generate a unique set on first boot instead.
+RUN rm -f /etc/ssh/ssh_host_* && \
+    if find /etc/ssh -maxdepth 1 -name 'ssh_host_*' -print -quit | grep -q .; then \
+      echo "ERROR: SSH host keys must not be baked into the image" >&2; \
+      exit 1; \
+    fi
+
+RUN printf '%s\n' \
+      '[Unit]' \
+      'Description=Generate SSH host keys' \
+      'Before=ssh.service' \
+      'After=local-fs.target' \
+      '' \
+      '[Service]' \
+      'Type=oneshot' \
+      'ExecStart=/usr/bin/ssh-keygen -A' \
+      'RemainAfterExit=yes' \
+      '' \
+      '[Install]' \
+      'WantedBy=multi-user.target' \
+      > /etc/systemd/system/ssh-host-keys.service
+
+RUN systemctl enable ssh-host-keys.service
+
 RUN systemctl set-default multi-user.target
 RUN systemctl mask \
       dev-hugepages.mount \

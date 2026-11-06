@@ -4,10 +4,22 @@
 
 | 单元 | 安装插件 | 用途 |
 |---|---|---|
+| `ssh-host-keys.service` | 基础镜像 | 首次启动时生成 SSH host key |
 | `opencode-server.service` | `095-opencode-server` | OpenCode V2 后台服务 |
 | `opencode-telegram-bot.service` | `160-opencode-telegram-bot` | Telegram bot，依赖 OpenCode server |
 | `container-tidy.timer` | `140-container-tidy` | 每周清理 |
 | `container-tidy-boot.timer` | `140-container-tidy` | 开机 15 分钟后清理 |
+
+## SSH host key
+
+`ssh-host-keys.service` 属于基础镜像。它在 `ssh.service` 之前执行 `ssh-keygen -A`，在首次启动时生成 host key，因此每台机器都有独立的一套。镜像本身不包含 host key。
+
+从旧镜像创建的机器可能仍保留之前内置的 key。可用以下命令轮换：
+
+```bash
+sudo rm -f /etc/ssh/ssh_host_*
+sudo systemctl restart ssh-host-keys.service ssh.service
+```
 
 ## OpenCode server
 
