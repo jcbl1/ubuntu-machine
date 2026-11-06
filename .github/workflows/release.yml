@@ -85,6 +85,10 @@ jobs:
   publish:
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to publish the release image scan to the Security tab.
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -181,6 +185,70 @@ jobs:
             echo "${IMAGE}:v${VERSION}-${snapshot_suffix}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Build image for scanning
+        id: scan-build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The pre-push scan covers amd64 only. arm64 shares the same Ubuntu
+          # source package versions, so the marginal risk is low.
+          platforms: linux/amd64
+          load: true
+          # Use the resolved snapshot tag rather than a cached local base image.
+          pull: true
+          tags: ubuntu-machine:release-scan
+          build-args: |
+            BASE_IMAGE=${{ steps.meta.outputs.base_image }}
+          cache-from: type=gha
+
+      - name: Scan image (table)
+        id: scan-table
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ubuntu-machine:release-scan
+          format: table
+          output: trivy-release.txt
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          # Report mode for now; switch to '1' to block vulnerable releases.
+          exit-code: '0'
+
+      - name: Scan image (SARIF)
+        # Keep report generation independent from the table gate so a future
+        # exit-code: '1' still publishes results.
+        if: always() && steps.scan-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ubuntu-machine:release-scan
+          format: sarif
+          output: trivy-results.sarif
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '0'
+          skip-setup-trivy: true
+
+      - name: Upload SARIF to GitHub Security
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        # A reporting failure should not invalidate an otherwise scannable release.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-release
+
+      - name: Publish scan summary
+        if: always() && hashFiles('trivy-release.txt') != ''
+        run: |
+          {
+            echo "## Trivy image scan"
+            echo '```'
+            cat trivy-release.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push
         uses: docker/build-push-action@v6

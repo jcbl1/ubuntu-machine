@@ -1,0 +1,26 @@
+version: 2
+
+# Only GitHub Actions are managed here. The Dockerfile base image uses
+# `ARG BASE_IMAGE` + `FROM ${BASE_IMAGE}`, which Dependabot's docker ecosystem
+# does not resolve. Base image updates are handled by release.yml, which pins
+# the resolved Ubuntu snapshot tag at release time.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

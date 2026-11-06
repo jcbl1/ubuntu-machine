@@ -1,0 +1,91 @@
+name: security-scan
+
+# 镜像漏洞扫描：PR/master 变更时运行，并每周定时扫描基础镜像新披露的 CVE。
+# 与 docker-build 分开是有意为之：扫描失败不阻塞构建验证，也便于独立定时运行。
+# 当前为报告模式（table 步骤 exit-code: 0）。确认基线后改为 1，作为合并门禁。
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to upload SARIF results to the Security tab.
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for scanning
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          # Always check the current base image, including on scheduled runs.
+          pull: true
+          tags: ubuntu-machine:scan
+          cache-from: type=gha
+
+      - name: Run Trivy (table)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ubuntu-machine:scan
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          # Report mode for now; switch to '1' after reviewing the baseline.
+          exit-code: '0'
+
+      - name: Run Trivy (SARIF)
+        # Run even if the table gate fails, otherwise the most important report
+        # would be missing exactly when vulnerabilities are found. Keep this step
+        # non-gating; the table step above owns the exit-code policy.
+        if: always() && steps.build.outcome == 'success'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ubuntu-machine:scan
+          format: sarif
+          output: trivy-results.sarif
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '0'
+          skip-setup-trivy: true
+
+      - name: Upload SARIF to GitHub Security
+        # Fork pull requests receive a read-only token, so they cannot upload.
+        if: always() && hashFiles('trivy-results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      - name: Upload SARIF artifact
+        # Keeps results available for fork PRs, where the Security tab upload is skipped.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          retention-days: 7
+          if-no-files-found: ignore
