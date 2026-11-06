@@ -43,16 +43,17 @@ RUN set -eux; \
       -exec sed -Ei 's!http://((([a-z]+\.)?archive|security|ports)\.ubuntu\.com)!https://\1!' {} +; \
     apt-get -o Acquire::Retries=0 update; \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    rm -f /etc/ssh/ssh_host_*
 
 RUN >/etc/machine-id
 RUN >/var/lib/dbus/machine-id
 
-# The openssh-server package generates host keys during installation. Baking
-# shared private host keys into a public image allows host impersonation, so
-# remove them and generate a unique set on first boot instead.
-RUN rm -f /etc/ssh/ssh_host_* && \
-    if find /etc/ssh -maxdepth 1 -name 'ssh_host_*' -print -quit | grep -q .; then \
+# The openssh-server package generates host keys during installation. They are
+# removed at the end of the same RUN above: deleting them in a later layer would
+# leave the private key bytes in the earlier layer. Assert the final filesystem
+# is clean.
+RUN if find /etc/ssh -maxdepth 1 -name 'ssh_host_*' -print -quit | grep -q .; then \
       echo "ERROR: SSH host keys must not be baked into the image" >&2; \
       exit 1; \
     fi
