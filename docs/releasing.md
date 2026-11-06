@@ -39,17 +39,33 @@ The `release` workflow then:
 
 1. Validates the tag format and checks that the commit is on `master`
 2. Resolves the Ubuntu snapshot tag matching the `BASE_IMAGE` digest
-3. Builds `linux/amd64,linux/arm64` from that snapshot
-4. Pushes `latest`, `vX.Y`, `vX.Y-noble`, `vX.Y-24.04`, and `vX.Y-nobleYYYYMMDD[.N]`
-5. Creates a GitHub Release with generated notes
-6. Syncs the Docker Hub short description and overview from `.github/repository.json` and `docs/dockerhub.md`
+3. Builds an `amd64` image from that snapshot and scans it with Trivy
+4. Builds `linux/amd64,linux/arm64` from that snapshot
+5. Pushes `latest`, `vX.Y`, `vX.Y-noble`, `vX.Y-24.04`, and `vX.Y-nobleYYYYMMDD[.N]`
+6. Creates a GitHub Release with generated notes
+7. Syncs the Docker Hub short description and overview from `.github/repository.json` and `docs/dockerhub.md`
 
 ## CI behavior
 
 - Pull requests validate an `amd64` build only
 - Pushes to `master` validate `amd64` and `arm64` builds without pushing
 - Tag pushes run the release workflow
+- Pull requests, `master` pushes, and a weekly schedule run a Trivy image scan
 - The release workflow refuses a version older than the latest release, protecting `latest` from accidental downgrades
+
+## Security scanning
+
+[Trivy](https://trivy.dev/) scans the built image for OS and library vulnerabilities:
+
+- `security-scan` runs on pull requests, pushes to `master`, and weekly on a schedule
+- The release workflow builds and scans the resolved snapshot before pushing anything
+- Only `HIGH` and `CRITICAL` vulnerabilities with an available fix are reported (`ignore-unfixed`)
+- Both workflows upload SARIF to the repository's **Security → Code scanning** tab (fork PRs keep the report as a workflow artifact), and the release workflow also writes the table report to the job summary
+- The pre-push scan covers `amd64`; the release also publishes `arm64`, which uses the same Ubuntu source package versions
+
+The scans currently run in report mode: the table scan uses `exit-code: '0'` and is the only step that owns the gate. The SARIF scan always runs after a successful build and stays non-gating, so results are still published when a future `exit-code: '1'` blocks the job. After reviewing the baseline, set the table steps in `security-scan.yml` and `release.yml` to `exit-code: '1'` to make fixable high-severity findings block merges and releases.
+
+If a finding is accepted, add a `.trivyignore.yaml` file with the justification and then pass it to both scans via the `trivyignores` input. The file must exist before the input is added, otherwise Trivy fails.
 
 ## Repository metadata
 
