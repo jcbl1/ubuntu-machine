@@ -14,11 +14,19 @@
 
 `ssh-host-keys.service` 属于基础镜像。它在 `ssh.service` 之前执行 `ssh-keygen -A`，在首次启动时生成 host key，因此每台机器都有独立的一套。镜像本身不包含 host key：构建时会在安装 `openssh-server` 的同一 layer 中删除包生成的 key，因此无法从镜像层中恢复。
 
-从旧镜像创建的机器可能仍保留之前内置的 key。可用以下命令轮换：
+使用包含 `ssh-host-keys.service` 的镜像创建的机器，可用以下命令轮换 key：
 
 ```bash
 sudo rm -f /etc/ssh/ssh_host_*
 sudo systemctl restart ssh-host-keys.service ssh.service
+```
+
+从旧镜像创建的机器没有该 unit。请删除 key 后直接重新生成，否则 `ssh.service` 会因为缺少 host key 而启动失败：
+
+```bash
+sudo rm -f /etc/ssh/ssh_host_*
+sudo ssh-keygen -A
+sudo systemctl restart ssh.service
 ```
 
 ## OpenCode server

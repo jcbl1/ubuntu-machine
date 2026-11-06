@@ -14,11 +14,19 @@ The image ships with systemd enabled. Runtime plugins can install and enable ser
 
 `ssh-host-keys.service` is part of the base image. It runs `ssh-keygen -A` before `ssh.service` and creates the host keys on first boot, so every machine gets a unique set. The image itself contains no host keys: the build removes the package-generated keys in the same layer that installs `openssh-server`, so they cannot be recovered from image layers.
 
-Machines created from an older image may still contain the previously baked keys. Rotate them with:
+Machines created from an image that includes `ssh-host-keys.service` can rotate their keys with:
 
 ```bash
 sudo rm -f /etc/ssh/ssh_host_*
 sudo systemctl restart ssh-host-keys.service ssh.service
+```
+
+Machines created from an older image do not have the unit. Delete the keys and regenerate them directly, otherwise `ssh.service` will fail to start without host keys:
+
+```bash
+sudo rm -f /etc/ssh/ssh_host_*
+sudo ssh-keygen -A
+sudo systemctl restart ssh.service
 ```
 
 ## OpenCode server
