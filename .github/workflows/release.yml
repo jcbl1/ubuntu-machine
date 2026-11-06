@@ -188,7 +188,7 @@ jobs:
 
       - name: Build image for scanning
         id: scan-build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           # The pre-push scan covers amd64 only. arm64 shares the same Ubuntu
@@ -251,7 +251,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
