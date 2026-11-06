@@ -55,11 +55,12 @@ git push origin v1.2
 
 ## 安全扫描
 
-[Trivy](https://trivy.dev/) 会扫描构建出的镜像中的系统包与库漏洞：
+[Trivy](https://trivy.dev/) 会扫描构建出的镜像中的系统包/库漏洞和内嵌密钥：
 
 - `security-scan` 在 pull request、推送 `master` 和每周定时任务中运行
 - 发版 workflow 在推送任何镜像前，先构建并扫描解析后的快照
-- 只报告存在修复版本的 `HIGH`、`CRITICAL` 漏洞（`ignore-unfixed`）
+- 只报告存在修复版本的 `HIGH`、`CRITICAL` 漏洞（`ignore-unfixed`）；secret scanner 还会标记私钥和其他凭据
+- SSH host key 在首次启动时生成，不会固化进镜像
 - 两个 workflow 都会把 SARIF 结果上传到仓库的 **Security → Code scanning** 页面（fork PR 则以 workflow artifact 形式保留报告），发版 workflow 还会把 table 报告写入 job summary
 - 发版前的扫描只覆盖 `amd64`；发布产物还包含 `arm64`，但两者使用相同的 Ubuntu 源码包版本
 

@@ -40,6 +40,8 @@ docker exec -it ubuntu-machine systemctl status
 
 The base image contains `openssh-server` but no credentials. To log in over SSH, provision an `authorized_keys` file through the `080-private` plugin (see [Configuration](configuration.md)) or create users and keys yourself.
 
+SSH host keys are not baked into the image. `ssh-host-keys.service` runs `ssh-keygen -A` before `ssh.service` on first boot, so every machine gets a unique set.
+
 ## Build locally
 
 ```bash

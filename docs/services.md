@@ -4,10 +4,22 @@ The image ships with systemd enabled. Runtime plugins can install and enable ser
 
 | Unit | Installed by | Purpose |
 |---|---|---|
+| `ssh-host-keys.service` | Base image | Generate SSH host keys on first boot |
 | `opencode-server.service` | `095-opencode-server` | OpenCode V2 background server |
 | `opencode-telegram-bot.service` | `160-opencode-telegram-bot` | Telegram bot; depends on the OpenCode server |
 | `container-tidy.timer` | `140-container-tidy` | Weekly cleanup |
 | `container-tidy-boot.timer` | `140-container-tidy` | Cleanup 15 minutes after boot |
+
+## SSH host keys
+
+`ssh-host-keys.service` is part of the base image. It runs `ssh-keygen -A` before `ssh.service` and creates the host keys on first boot, so every machine gets a unique set. The image itself contains no host keys.
+
+Machines created from an older image may still contain the previously baked keys. Rotate them with:
+
+```bash
+sudo rm -f /etc/ssh/ssh_host_*
+sudo systemctl restart ssh-host-keys.service ssh.service
+```
 
 ## OpenCode server
 

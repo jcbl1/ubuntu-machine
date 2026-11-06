@@ -40,6 +40,8 @@ docker exec -it ubuntu-machine systemctl status
 
 基础镜像包含 `openssh-server`，但不内置任何凭据。需要通过 SSH 登录时，可用 `080-private` 插件落位 `authorized_keys`（见[配置](configuration.md)），或自行创建用户和密钥。
 
+镜像不内置 SSH host key。`ssh-host-keys.service` 会在首次启动时、`ssh.service` 之前执行 `ssh-keygen -A`，因此每台机器都会生成独立的一套。
+
 ## 本地构建
 
 ```bash
