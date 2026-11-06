@@ -55,12 +55,11 @@ The `release` workflow then:
 
 ## Security scanning
 
-[Trivy](https://trivy.dev/) scans the built image for OS/library vulnerabilities and embedded secrets:
+[Trivy](https://trivy.dev/) scans the built image for OS and library vulnerabilities:
 
 - `security-scan` runs on pull requests, pushes to `master`, and weekly on a schedule
 - The release workflow builds and scans the resolved snapshot before pushing anything
-- Only `HIGH` and `CRITICAL` vulnerabilities with an available fix are reported (`ignore-unfixed`); the secret scanner also flags private keys and other credentials
-- SSH host keys are generated at first boot and never baked into the image
+- Only `HIGH` and `CRITICAL` vulnerabilities with an available fix are reported (`ignore-unfixed`)
 - Both workflows upload SARIF to the repository's **Security → Code scanning** tab (fork PRs keep the report as a workflow artifact), and the release workflow also writes the table report to the job summary
 - The pre-push scan covers `amd64`; the release also publishes `arm64`, which uses the same Ubuntu source package versions
 
