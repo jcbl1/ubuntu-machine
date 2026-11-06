@@ -12,7 +12,7 @@ The image ships with systemd enabled. Runtime plugins can install and enable ser
 
 ## SSH host keys
 
-`ssh-host-keys.service` is part of the base image. It runs `ssh-keygen -A` before `ssh.service` and creates the host keys on first boot, so every machine gets a unique set. The image itself contains no host keys.
+`ssh-host-keys.service` is part of the base image. It runs `ssh-keygen -A` before `ssh.service` and creates the host keys on first boot, so every machine gets a unique set. The image itself contains no host keys: the build removes the package-generated keys in the same layer that installs `openssh-server`, so they cannot be recovered from image layers.
 
 Machines created from an older image may still contain the previously baked keys. Rotate them with:
 

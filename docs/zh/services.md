@@ -12,7 +12,7 @@
 
 ## SSH host key
 
-`ssh-host-keys.service` 属于基础镜像。它在 `ssh.service` 之前执行 `ssh-keygen -A`，在首次启动时生成 host key，因此每台机器都有独立的一套。镜像本身不包含 host key。
+`ssh-host-keys.service` 属于基础镜像。它在 `ssh.service` 之前执行 `ssh-keygen -A`，在首次启动时生成 host key，因此每台机器都有独立的一套。镜像本身不包含 host key：构建时会在安装 `openssh-server` 的同一 layer 中删除包生成的 key，因此无法从镜像层中恢复。
 
 从旧镜像创建的机器可能仍保留之前内置的 key。可用以下命令轮换：
 
