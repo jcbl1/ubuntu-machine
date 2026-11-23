@@ -83,7 +83,7 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `080-private` | 从 `private/` 落位 gitconfig、authorized_keys、bot `.env`、`service.json` | 运行期 |
 | `090-opencode` | OpenCode V2 用户配置（`opencode.jsonc`、`cli.json`、notifier） | 运行期 |
 | `095-opencode-server` | `opencode-server.service`（OpenCode 后台服务） | 运行期 |
-| `100-nvm` | nvm（不预装 Node 版本） | 运行期 |
+| `100-nvm` | nvm 与默认 Node 24 | 运行期 |
 | `110-rust` | rustup + stable；可选编译 tauri-cli（较慢） | 运行期 |
 | `120-go` | golang-go（Ubuntu 24.04 源） | 构建/运行 |
 | `130-tauri-deps` | Tauri/GUI 编译依赖（gtk、webkit、mingw 等，体积大） | 构建/运行 |

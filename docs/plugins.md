@@ -83,7 +83,7 @@ sudo bash plugins/bin/run-plugins /tmp/plugins
 | `080-private` | Installs gitconfig, authorized_keys, bot `.env`, and `service.json` from `private/` | Runtime |
 | `090-opencode` | OpenCode V2 user config (`opencode.jsonc`, `cli.json`, notifier) | Runtime |
 | `095-opencode-server` | `opencode-server.service` for the OpenCode background server | Runtime |
-| `100-nvm` | nvm (no Node version preinstalled) | Runtime |
+| `100-nvm` | nvm and a default Node 24 | Runtime |
 | `110-rust` | rustup + stable; optionally compiles tauri-cli (slow) | Runtime |
 | `120-go` | golang-go from Ubuntu 24.04 | Build/runtime |
 | `130-tauri-deps` | Tauri/GUI build dependencies (gtk, webkit, mingw, etc.; large) | Build/runtime |

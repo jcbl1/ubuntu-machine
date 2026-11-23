@@ -1,9 +1,12 @@
 #!/bin/bash
-# 100-nvm - nvm（用户级 Node 版本管理器）
+# 100-nvm - nvm + 默认 Node 24（用户级）
 #
-# 仅安装并配置 nvm 本身（~/.nvm，init 行由 installer 写入缺省的 rc 文件；
-# 若已启用 040-zsh，.zshrc 中的 nvm 段已存在，installer 会自动跳过不重复添加）。
-# Node 具体版本由使用者按需安装：nvm install --lts / nvm install 22。
+# 安装并配置 nvm（~/.nvm，init 行由 installer 写入缺省的 rc 文件；若已启用
+# 040-zsh，.zshrc 中的 nvm 段已存在，installer 会自动跳过不重复添加），然后
+# 安装 Node 24 并设为 nvm 默认版本。
+#
+# 默认装 24 是因为 090-opencode 的 MCP 通过 nvm-exec 使用 NODE_VERSION=24。
+# 160-opencode-telegram-bot 仍按自己的 .nvmrc 装 v22.23.2，与默认版本共存。
 #
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
 
@@ -23,4 +26,17 @@ else
   echo "100-nvm: nvm 已存在，跳过安装"
 fi
 
-echo "100-nvm: 完成（用户 $TARGET_USER；装 Node 版本: nvm install 22 之类按需执行）"
+as_user bash -c '
+  set -e
+  export NVM_DIR="$HOME/.nvm"
+  # nvm 内部多处直接引用未定义变量，与 set -u 不兼容，加载期间关闭。
+  set +u
+  . "$NVM_DIR/nvm.sh" --no-use
+
+  nvm install 24
+  nvm alias default 24
+  nvm use 24
+  echo "100-nvm: 默认 Node $(node --version)"
+'
+
+echo "100-nvm: 完成（用户 $TARGET_USER；默认 Node 24）"
