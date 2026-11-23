@@ -1,21 +1,27 @@
 name: release
 
-# 正式发版：推送 vX.Y tag 后触发。
+# 正式发版：推送 vX.Y tag 后触发，也可 workflow_dispatch 指定已存在的 tag 重新发布。
 #   git tag v1.0
 #   git push origin v1.0
 #
 # 发布同一 digest 的 tag：
 #   latest / vX.Y / vX.Y-noble / vX.Y-24.04 / vX.Y-nobleYYYYMMDD[.N]
-# 最后一个 tag 由基础镜像 ubuntu:24.04 当前 digest 对应的 ubuntu 快照 tag 解出。
+# 最后一个 tag 由基础镜像 amd64/arm64 manifest digest 对应的 ubuntu 快照 tag 解出；解不出时按 digest 固定并省略该 tag。
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要重新发布的 tag（例如 v1.0）'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -29,19 +35,27 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
 
       - name: Validate tag
         id: check
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$TAG_NAME"
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+$ ]]; then
             echo "::error::invalid tag '$tag': expected vX.Y (e.g. v1.2)"
             exit 1
           fi
 
+          if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::tag '$tag' does not exist on origin"
+            exit 1
+          fi
+
           git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+          if ! git merge-base --is-ancestor HEAD origin/master; then
             echo "::error::tag '$tag' points to a commit that is not on master"
             exit 1
           fi
@@ -92,6 +106,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -144,35 +160,56 @@ jobs:
               ;;
           esac
 
-          digest=$(curl -fsSL "https://hub.docker.com/v2/repositories/${hub_repo}/tags/${base_tag}" \
-            | jq -r '.digest // empty')
+          base_resp=$(curl -fsSL "https://hub.docker.com/v2/repositories/${hub_repo}/tags/${base_tag}")
+          digest=$(jq -r '.digest // empty' <<<"$base_resp")
           if [ -z "$digest" ]; then
             echo "::error::could not resolve digest for ${hub_repo}:${base_tag}"
             exit 1
           fi
 
-          # 找到与基础镜像 digest 相同的 ubuntu 快照 tag（noble-YYYYMMDD[.N]）
+          # 多架构 tag 的 index digest 会随 index 里的平台集合变化（例如 riscv64 由单独流水线
+          # 补推到滚动 tag），所以不能直接比较 index digest。比较实际构建的 amd64/arm64 manifest。
+          platforms=$(jq -c '
+            [.images[]?
+             | select(.os == "linux" and (.architecture == "amd64" or .architecture == "arm64"))
+             | {architecture, digest}]' <<<"$base_resp")
+          # 空列表必须提前报错：all([]; ...) 恒为真，否则会匹配到所有快照 tag。
+          if [ "$(jq 'length' <<<"$platforms")" -eq 0 ]; then
+            echo "::error::could not resolve amd64/arm64 digests for ${hub_repo}:${base_tag}"
+            exit 1
+          fi
+
+          # 找到各平台 digest 与基础镜像相同的 ubuntu 快照 tag（noble-YYYYMMDD[.N]）
           snapshot=""
           page="https://hub.docker.com/v2/repositories/${hub_repo}/tags?page_size=100&name=${codename}-"
           while [ -n "$page" ]; do
             resp=$(curl -fsSL "$page")
-            found=$(jq -r --arg d "$digest" \
-              '.results[]? | select(.digest == $d) | .name' <<<"$resp" \
-              | sort -V | tail -n1)
+            found=$(jq -r --argjson want "$platforms" '
+              .results[]? as $tag
+              | select(all($want[];
+                  . as $img
+                  | any($tag.images[]?;
+                      .os == "linux"
+                      and .architecture == $img.architecture
+                      and .digest == $img.digest)))
+              | $tag.name' <<<"$resp" | sort -V | tail -n1)
             if [ -n "$found" ]; then
               snapshot="$found"
               break
             fi
             page=$(jq -r '.next // empty' <<<"$resp")
           done
-          if [ -z "$snapshot" ]; then
-            echo "::error::no ${codename}-YYYYMMDD[.N] tag found for ${hub_repo}:${base_tag} (${digest})"
-            exit 1
-          fi
 
-          base_image="${base_repo}:${snapshot}"
-          # noble-20261024.1 -> noble20261024.1（项目 tag 中 codename 与日期直接相连）
-          snapshot_suffix="${snapshot/-/}"
+          if [ -n "$snapshot" ]; then
+            base_image="${base_repo}:${snapshot}"
+            # noble-20261024.1 -> noble20261024.1（项目 tag 中 codename 与日期直接相连）
+            snapshot_suffix="${snapshot/-/}"
+          else
+            # 快照 tag 只是额外的命名信息，不应阻塞发版；退化为按 digest 固定，仍然可复现。
+            echo "::warning::no ${codename}-YYYYMMDD[.N] tag matches ${hub_repo}:${base_tag} (${digest}); pinning the base image by digest instead"
+            base_image="${base_repo}@${digest}"
+            snapshot_suffix=""
+          fi
           echo "resolved base image: $base_image"
 
           echo "base_image=$base_image" >> "$GITHUB_OUTPUT"
@@ -182,7 +219,9 @@ jobs:
             echo "${IMAGE}:v${VERSION}"
             echo "${IMAGE}:v${VERSION}-${codename}"
             echo "${IMAGE}:v${VERSION}-${base_version}"
-            echo "${IMAGE}:v${VERSION}-${snapshot_suffix}"
+            if [ -n "$snapshot_suffix" ]; then
+              echo "${IMAGE}:v${VERSION}-${snapshot_suffix}"
+            fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
