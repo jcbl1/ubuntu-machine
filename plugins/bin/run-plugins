@@ -15,9 +15,7 @@
 #   --dry-run          只列出将要执行的插件，不实际运行
 #   --env-file FILE    读取 dotenv 配置（默认仓库根目录 .env；不存在则跳过）
 #
-# .env 只补充尚未设置的环境变量，因此环境变量优先于文件；运行期从仓库布局
-# 执行时才会读取默认路径，构建期（/usr/local/sbin）不读取。格式为
-# KEY=value，支持整行 # 注释与单/双引号，列表使用空格分隔的字符串。
+# .env 只补未设置的环境变量（环境变量优先）；仅运行期仓库布局读取。
 #
 # 插件契约（contract）:
 #   - plain bash script, executed with "bash" in lexicographic filename order

@@ -31,25 +31,11 @@
 
 ## 插件配置文件
 
-运行期插件设置放在仓库根目录的 `.env`。该文件被 git 忽略，并排除在 Docker 构建上下文之外，不会进入镜像。
+运行期设置放在仓库根目录的 `.env`（git 忽略，不进入镜像）。从 `.env.example` 开始；`run-plugins` 默认读取 `.env`，也可用 `--env-file FILE`。
 
-```bash
-cp .env.example .env
-$EDITOR .env
-```
-
-`run-plugins` 运行期默认读取 `.env`；可用 `--env-file FILE` 指定其他文件。构建期不会读取它。
-
-- 格式：`KEY=value`，可带 `export`，整行 `#` 注释，含空格的值用单/双引号包裹
-- 列表值是空格分隔的字符串（如 `YAZI_NOOP_PATHS`）
-- 空值表示禁用（`YAZI_NOOP_PATHS=`）
-- 环境变量优先；本文件只补充尚未设置的变量
-- 文件只解析、不 `source`，值不会被执行
-- 密钥放 `plugins/private/`，不要放这里
+格式为 `KEY=value`，支持整行 `#` 注释与引号；环境变量优先。密钥仍放 `plugins/private/`。
 
 ## 环境变量
-
-下表中的设置可以写进 `.env`，也可以作为环境变量导出；环境变量优先于 `.env`。
 
 | 变量 | 使用方 | 作用 |
 |---|---|---|

@@ -47,16 +47,7 @@ Never touched:
 | `APT_CLEAN` | `yes` | Run `apt-get clean` |
 | `DRY_RUN` | `0` | Set to `1` to report without deleting |
 
-`USER_CACHES` values are literal directory names under `~/.cache/`. `USER_CACHE_PATHS` entries are relative to `$HOME` unless they start with `/`. Adjust them to match the runtimes you actually use. `~/.npm/_npx` and `~/.cache/ms-playwright` are deliberately excluded by default.
-
-Precedence: built-in defaults < `/etc/default/container-tidy` < environment variables < command line (`--dry-run`). The scripts read the file on every run, so changes take effect on the next run; only timer schedule changes require a restart.
-
-Preview without deleting anything:
-
-```bash
-sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
-sudo /usr/local/bin/container-tidy-root.sh --dry-run
-```
+`USER_CACHE_PATHS` entries are relative to `$HOME` unless absolute. `~/.npm/_npx` and `~/.cache/ms-playwright` are excluded by default. Precedence: defaults < `/etc/default/container-tidy` < environment < `--dry-run`; config is read on every run.
 
 ## Commands
 
@@ -65,6 +56,8 @@ systemctl cat container-tidy.timer container-tidy-boot.timer
 systemctl list-timers 'container-tidy*'
 sudo journalctl -t container-tidy-user -t container-tidy-root
 sudo systemctl start container-tidy.target
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
+sudo /usr/local/bin/container-tidy-root.sh --dry-run
 sudo systemctl disable --now container-tidy.timer container-tidy-boot.timer
 ```
 

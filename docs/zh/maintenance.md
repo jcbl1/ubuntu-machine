@@ -47,16 +47,7 @@
 | `APT_CLEAN` | `yes` | 是否执行 `apt-get clean` |
 | `DRY_RUN` | `0` | 设为 `1` 时只报告不删除 |
 
-`USER_CACHES` 的值是 `~/.cache/` 下的目录名；`USER_CACHE_PATHS` 的值以 `/` 开头时按绝对路径处理，否则相对 `$HOME`。按实际使用的运行时调整。`~/.npm/_npx` 与 `~/.cache/ms-playwright` 默认不清理。
-
-优先级：内置默认 < `/etc/default/container-tidy` < 环境变量 < 命令行（`--dry-run`）。脚本每次运行都会读取配置文件，修改后下次运行自动生效；只有调整 timer 调度才需要 restart。
-
-手动预览（不删除任何东西）：
-
-```bash
-sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
-sudo /usr/local/bin/container-tidy-root.sh --dry-run
-```
+`USER_CACHE_PATHS` 以 `/` 开头时按绝对路径，否则相对 `$HOME`。`~/.npm/_npx` 与 `~/.cache/ms-playwright` 默认不清理。优先级：默认 < `/etc/default/container-tidy` < 环境变量 < `--dry-run`；每次运行读取。
 
 ## 常用命令
 
@@ -65,6 +56,8 @@ systemctl cat container-tidy.timer container-tidy-boot.timer
 systemctl list-timers 'container-tidy*'
 sudo journalctl -t container-tidy-user -t container-tidy-root
 sudo systemctl start container-tidy.target
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
+sudo /usr/local/bin/container-tidy-root.sh --dry-run
 sudo systemctl disable --now container-tidy.timer container-tidy-boot.timer
 ```
 

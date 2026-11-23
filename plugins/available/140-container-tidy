@@ -32,14 +32,14 @@ cat > /usr/local/bin/container-tidy-root.sh <<'TIDY_ROOT_SH'
 # 清理对象：/tmp/systemd-private-* 残留目录（>STALE_PRIVATE_AGE_DAYS 天，来自已结束
 #           的会话）、journald vacuum（阈值 JOURNAL_VACUUM_SIZE/AGE）、apt 缓存
 #           （APT_CLEAN；不清 /var/lib/apt/lists，清了拖慢下次 apt）。
-# 配置：/etc/default/container-tidy    文档：/usr/share/doc/container-tidy/README.md
-# 优先级：内置默认 < 配置文件 < 环境变量 < 命令行（--dry-run）。
+# 配置：/etc/default/container-tidy（默认 < 文件 < 环境变量 < --dry-run）
+# 文档：/usr/share/doc/container-tidy/README.md
 set -u
 
 TAG="container-tidy-root"
 CONF="/etc/default/container-tidy"
 
-# 配置文件按 KEY=value 解析，只补未设置的变量，避免覆盖调用方环境。
+# 配置只补未设置的变量。
 load_conf() {
   local file="$1" line key val quote
   [ -r "$file" ] || return 0
@@ -142,8 +142,7 @@ set -u
 TAG="container-tidy-user"
 CONF="/etc/default/container-tidy"
 
-# 配置优先级：内置默认 < 配置文件 < 环境变量 < 命令行（--dry-run）。
-# 配置文件按 KEY=value 解析，只补未设置的变量，避免覆盖调用方环境。
+# 配置只补未设置的变量（默认 < 文件 < 环境变量 < --dry-run）。
 load_conf() {
   local file="$1" line key val quote
   [ -r "$file" ] || return 0
@@ -357,9 +356,7 @@ TIDY_ROOT_UNIT
 # 8/9  /etc/default/container-tidy
 # ============================================================
 cat > /etc/default/container-tidy <<'TIDY_CONF'
-# container-tidy 配置：清理脚本每次运行都会读取（只补未设置的环境变量）。
-# 优先级：内置默认 < 本文件 < 环境变量 < 命令行（--dry-run）。
-# 修改后下次运行自动生效；调整 timer 调度才需要 restart。
+# container-tidy 配置：每次运行读取；优先级 默认 < 本文件 < 环境变量 < --dry-run。
 # 完整文档：/usr/share/doc/container-tidy/README.md
 TMP_AGE_DAYS=1
 PROJECT_TMP_AGE_DAYS=7
@@ -436,15 +433,7 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 | `APT_CLEAN` | yes | 是否执行 apt-get clean |
 | `DRY_RUN` | 0 | 1 = 只报告不删除（排障用；`--dry-run` 优先） |
 
-配置优先级：内置默认 < 本文件 < 环境变量 < 命令行（`--dry-run`）。
-脚本每次运行都读取本文件，修改后无需重启 timer；只有调整 timer 调度才需要 restart。
-
-手动预览（不删除任何东西）：
-
-```bash
-sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
-sudo /usr/local/bin/container-tidy-root.sh --dry-run
-```
+配置优先级：默认 < 本文件 < 环境变量 < `--dry-run`；每次运行读取。
 
 ## 运维速查
 
@@ -453,6 +442,8 @@ systemctl cat container-tidy.timer container-tidy-boot.timer        # 看定义
 systemctl list-timers container-tidy.timer container-tidy-boot.timer # 下次运行时间
 sudo journalctl -t container-tidy-user -t container-tidy-root      # 清理日志
 sudo systemctl start container-tidy.target                         # 手动立即跑一次
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run     # 预览
+sudo /usr/local/bin/container-tidy-root.sh --dry-run               # 预览
 sudo systemctl disable --now container-tidy.timer container-tidy-boot.timer  # 停用
 
 # 卸载（停用后删除全部 9 个文件 + systemctl daemon-reload）
