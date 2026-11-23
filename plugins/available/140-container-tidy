@@ -33,17 +33,58 @@ cat > /usr/local/bin/container-tidy-root.sh <<'TIDY_ROOT_SH'
 #           的会话）、journald vacuum（阈值 JOURNAL_VACUUM_SIZE/AGE）、apt 缓存
 #           （APT_CLEAN；不清 /var/lib/apt/lists，清了拖慢下次 apt）。
 # 配置：/etc/default/container-tidy    文档：/usr/share/doc/container-tidy/README.md
+# 优先级：内置默认 < 配置文件 < 环境变量 < 命令行（--dry-run）。
 set -u
 
 TAG="container-tidy-root"
 CONF="/etc/default/container-tidy"
-[ -r "$CONF" ] && . "$CONF"
+
+# 配置文件按 KEY=value 解析，只补未设置的变量，避免覆盖调用方环境。
+load_conf() {
+  local file="$1" line key val quote
+  [ -r "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    if [[ ! "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      echo "$TAG: $file: 无法解析的行: $line" >&2
+      continue
+    fi
+    key="${BASH_REMATCH[1]}"
+    val="${BASH_REMATCH[2]}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    if [[ "$val" == \"* ]] || [[ "$val" == \'* ]]; then
+      quote="${val:0:1}"
+      if [ "${#val}" -lt 2 ] || [ "${val: -1}" != "$quote" ]; then
+        echo "$TAG: $file: 引号未闭合: $line" >&2
+        continue
+      fi
+      val="${val:1:${#val}-2}"
+    fi
+    [[ -v "$key" ]] || printf -v "$key" '%s' "$val"
+  done < "$file"
+}
+
+dry_run_cli=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run_cli=1 ;;
+    -h|--help) echo "用法: container-tidy-root.sh [--dry-run]"; exit 0 ;;
+    *) echo "$TAG: 未知参数: $arg" >&2; exit 2 ;;
+  esac
+done
+
+load_conf "$CONF"
 
 STALE_PRIVATE_AGE_DAYS="${STALE_PRIVATE_AGE_DAYS:-7}"
 JOURNAL_VACUUM_SIZE="${JOURNAL_VACUUM_SIZE:-50M}"
 JOURNAL_VACUUM_AGE="${JOURNAL_VACUUM_AGE:-14d}"
 APT_CLEAN="${APT_CLEAN:-yes}"
 DRY_RUN="${DRY_RUN:-0}"
+[ "$dry_run_cli" = "1" ] && DRY_RUN=1
 
 log() {
   echo "$*"
@@ -91,7 +132,8 @@ cat > /usr/local/bin/container-tidy-user.sh <<'TIDY_USER_SH'
 #!/usr/bin/env bash
 # container-tidy-user.sh — 用户级清理（由 container-tidy-user.service 以其 User= 身份运行）
 # 清理对象：/tmp 遗留 .so 产物（>TMP_AGE_DAYS 天）、/tmp/opencode 陈旧子项
-#           （>PROJECT_TMP_AGE_DAYS 天）、~/.cache 下 USER_CACHES 列出的缓存目录。
+#           （>PROJECT_TMP_AGE_DAYS 天）、~/.cache 下 USER_CACHES 列出的目录、
+#           USER_CACHE_PATHS 列出的额外路径（相对 HOME 或绝对路径）。
 # 安全边界：只删属于当前用户的对象；年龄门槛保护当前会话在用的产物。
 #           /Users（宿主机绑定）、opencode 会话库等永不触碰，详见文档。
 # 配置：/etc/default/container-tidy    文档：/usr/share/doc/container-tidy/README.md
@@ -99,12 +141,54 @@ set -u
 
 TAG="container-tidy-user"
 CONF="/etc/default/container-tidy"
-[ -r "$CONF" ] && . "$CONF"
+
+# 配置优先级：内置默认 < 配置文件 < 环境变量 < 命令行（--dry-run）。
+# 配置文件按 KEY=value 解析，只补未设置的变量，避免覆盖调用方环境。
+load_conf() {
+  local file="$1" line key val quote
+  [ -r "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    if [[ ! "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      echo "$TAG: $file: 无法解析的行: $line" >&2
+      continue
+    fi
+    key="${BASH_REMATCH[1]}"
+    val="${BASH_REMATCH[2]}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    if [[ "$val" == \"* ]] || [[ "$val" == \'* ]]; then
+      quote="${val:0:1}"
+      if [ "${#val}" -lt 2 ] || [ "${val: -1}" != "$quote" ]; then
+        echo "$TAG: $file: 引号未闭合: $line" >&2
+        continue
+      fi
+      val="${val:1:${#val}-2}"
+    fi
+    [[ -v "$key" ]] || printf -v "$key" '%s' "$val"
+  done < "$file"
+}
+
+dry_run_cli=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run_cli=1 ;;
+    -h|--help) echo "用法: container-tidy-user.sh [--dry-run]"; exit 0 ;;
+    *) echo "$TAG: 未知参数: $arg" >&2; exit 2 ;;
+  esac
+done
+
+load_conf "$CONF"
 
 TMP_AGE_DAYS="${TMP_AGE_DAYS:-1}"
 PROJECT_TMP_AGE_DAYS="${PROJECT_TMP_AGE_DAYS:-7}"
-USER_CACHES="${USER_CACHES:-pip go-build node}"
+USER_CACHES="${USER_CACHES-pip go-build node uv pnpm}"
+USER_CACHE_PATHS="${USER_CACHE_PATHS-.npm/_cacache}"
 DRY_RUN="${DRY_RUN:-0}"
+[ "$dry_run_cli" = "1" ] && DRY_RUN=1
 
 OWNER="$(id -un)"
 HOMEDIR="$(getent passwd "$(id -u)" | cut -d: -f6)"
@@ -126,6 +210,14 @@ fi
 
 for d in $USER_CACHES; do
   [ -d "$HOMEDIR/.cache/$d" ] && printf '%s\0' "$HOMEDIR/.cache/$d" >>"$LIST"
+done
+
+for p in $USER_CACHE_PATHS; do
+  case "$p" in
+    /*) ;;
+    *) p="$HOMEDIR/$p" ;;
+  esac
+  [ -d "$p" ] && printf '%s\0' "$p" >>"$LIST"
 done
 
 count=0
@@ -219,7 +311,9 @@ TIDY_TARGET
 # ============================================================
 cat > /tmp/container-tidy-user.service <<'TIDY_USER_UNIT'
 # container-tidy-user.service — 用户级清理（最小权限：以 __TIDY_USER__ 身份运行）。
-# 清理 /tmp 遗留 .so 产物、/tmp/opencode 陈旧子项、~/.cache/{pip,go-build,node}。
+# 清理 /tmp 遗留 .so 产物、/tmp/opencode 陈旧子项、
+# ~/.cache/{pip,go-build,node,uv,pnpm} 与 ~/.npm/_cacache。
+# 配置：/etc/default/container-tidy（脚本读取；环境变量与 --dry-run 优先）。
 # 注意：不可加 PrivateTmp（会打到隔离 /tmp）或 ProtectHome=read-only（挡删缓存）。
 # 文档：/usr/share/doc/container-tidy/README.md
 [Unit]
@@ -230,7 +324,6 @@ After=local-fs.target
 [Service]
 Type=oneshot
 User=__TIDY_USER__
-EnvironmentFile=/etc/default/container-tidy
 ExecStart=/usr/local/bin/container-tidy-user.sh
 NoNewPrivileges=true
 Nice=19
@@ -245,6 +338,7 @@ mv /tmp/container-tidy-user.service /etc/systemd/system/container-tidy-user.serv
 cat > /etc/systemd/system/container-tidy-root.service <<'TIDY_ROOT_UNIT'
 # container-tidy-root.service — root 级清理（仅做最小必要操作）。
 # 清理 /tmp/systemd-private-* 残留目录、journald vacuum、apt 缓存（不动 lists）。
+# 配置：/etc/default/container-tidy（脚本读取；环境变量与 --dry-run 优先）。
 # 文档：/usr/share/doc/container-tidy/README.md
 [Unit]
 Description=container-tidy root-level cleanup (journal, /tmp private dirs, apt)
@@ -253,7 +347,6 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/default/container-tidy
 ExecStart=/usr/local/bin/container-tidy-root.sh
 NoNewPrivileges=true
 Nice=19
@@ -264,15 +357,17 @@ TIDY_ROOT_UNIT
 # 8/9  /etc/default/container-tidy
 # ============================================================
 cat > /etc/default/container-tidy <<'TIDY_CONF'
-# container-tidy 配置：由 unit 的 EnvironmentFile= 读取，同时被清理脚本 source。
-# 修改后执行：sudo systemctl restart container-tidy.timer
+# container-tidy 配置：清理脚本每次运行都会读取（只补未设置的环境变量）。
+# 优先级：内置默认 < 本文件 < 环境变量 < 命令行（--dry-run）。
+# 修改后下次运行自动生效；调整 timer 调度才需要 restart。
 # 完整文档：/usr/share/doc/container-tidy/README.md
 TMP_AGE_DAYS=1
 PROJECT_TMP_AGE_DAYS=7
 STALE_PRIVATE_AGE_DAYS=7
 JOURNAL_VACUUM_SIZE=50M
 JOURNAL_VACUUM_AGE=14d
-USER_CACHES="pip go-build node"
+USER_CACHES="pip go-build node uv pnpm"
+USER_CACHE_PATHS=".npm/_cacache"
 APT_CLEAN=yes
 DRY_RUN=0
 TIDY_CONF
@@ -289,7 +384,7 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 ## 这是什么
 
 一组 systemd timer + 脚本，每周日凌晨与每次开机 15 分钟后自动清理：
-`/tmp` 遗留构建产物、已结束会话残留目录、journald 日志、apt 缓存、用户级缓存（pip/go-build/node）。
+`/tmp` 遗留构建产物、已结束会话残留目录、journald 日志、apt 缓存、用户级缓存（pip/go-build/node/uv/pnpm 与 npm 内容缓存）。
 每周与开机清理使用两个独立 timer，避免同一 timer 混用 `OnCalendar` 与 `OnBootSec`。
 预期每周回收几百 MB（视 opencode/Bun 使用频率浮动）。
 
@@ -304,7 +399,7 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 | `/etc/systemd/system/container-tidy-root.service` | 以 root 运行 root 级清理 |
 | `/usr/local/bin/container-tidy-user.sh` | 用户级清理脚本 |
 | `/usr/local/bin/container-tidy-root.sh` | root 级清理脚本 |
-| `/etc/default/container-tidy` | 全部阈值配置（脚本与 unit 共读） |
+| `/etc/default/container-tidy` | 全部阈值配置（清理脚本读取；环境变量/CLI 优先） |
 | `/usr/share/doc/container-tidy/README.md` | 本文档 |
 
 ## 清理范围与安全边界
@@ -316,13 +411,16 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 | `/tmp/systemd-private-*`（已结束会话残留） | >7 天 | root |
 | journald | vacuum 至 50M / 14d | root |
 | `/var/cache/apt`（**不动** `/var/lib/apt/lists`，清了拖慢下次 apt） | — | root |
-| `~/.cache/{pip,go-build,node}` | — | 普通用户 |
+| `~/.cache/{pip,go-build,node,uv,pnpm}` | — | 普通用户 |
+| `~/.npm/_cacache`（npm 内容缓存） | — | 普通用户 |
 
 **永不触碰**（清理方案评审时明确排除）：
 
 - `/Users` —— 宿主机 virtiofs 绑定挂载，绝对不能动
 - `~/.local/share/opencode/`（opencode 会话数据库，删除即清空全部会话记录）
 - `~/go`（Go 模块缓存）、`~/.rustup`（Rust 工具链）、`~/.opencode`（程序本体）
+- `~/.npm/_npx`（Telegram bot 从这里运行，删除可能影响正在运行的 bot）
+- `~/.cache/ms-playwright`（浏览器缓存，重新下载成本高，默认不清理）
 - 其他用户属主的文件（脚本只删 `$USER` 属主对象）
 
 ## 配置（`/etc/default/container-tidy`）
@@ -333,11 +431,20 @@ cat > /tmp/container-tidy-README.md <<'TIDY_DOC'
 | `PROJECT_TMP_AGE_DAYS` | 7 | /tmp/opencode 子项保留天数 |
 | `STALE_PRIVATE_AGE_DAYS` | 7 | systemd-private 残留目录保留天数 |
 | `JOURNAL_VACUUM_SIZE` / `JOURNAL_VACUUM_AGE` | 50M / 14d | journal vacuum 阈值 |
-| `USER_CACHES` | "pip go-build node" | 要清空的 ~/.cache 子目录 |
+| `USER_CACHES` | "pip go-build node uv pnpm" | 要清空的 ~/.cache 子目录 |
+| `USER_CACHE_PATHS` | ".npm/_cacache" | 额外清理路径（相对 HOME 或绝对路径，空格分隔） |
 | `APT_CLEAN` | yes | 是否执行 apt-get clean |
-| `DRY_RUN` | 0 | 1 = 只报告不删除（排障用） |
+| `DRY_RUN` | 0 | 1 = 只报告不删除（排障用；`--dry-run` 优先） |
 
-改完配置执行：`sudo systemctl restart container-tidy.timer container-tidy-boot.timer`
+配置优先级：内置默认 < 本文件 < 环境变量 < 命令行（`--dry-run`）。
+脚本每次运行都读取本文件，修改后无需重启 timer；只有调整 timer 调度才需要 restart。
+
+手动预览（不删除任何东西）：
+
+```bash
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
+sudo /usr/local/bin/container-tidy-root.sh --dry-run
+```
 
 ## 运维速查
 

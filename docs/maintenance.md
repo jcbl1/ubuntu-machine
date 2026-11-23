@@ -21,12 +21,15 @@ The timers are intentionally separate. Combining `OnCalendar` and `OnBootSec` in
 | journald | vacuum to 50M / 14d | root |
 | `/var/cache/apt` (does not touch `/var/lib/apt/lists`) | — | root |
 | Directories listed in `USER_CACHES` under `~/.cache/` | — | user |
+| Paths listed in `USER_CACHE_PATHS` (relative to `$HOME` or absolute) | — | user |
 
 Never touched:
 
 - `/Users` (host bind mount)
 - `~/.local/share/opencode/` (session database)
 - `~/go`, `~/.rustup`, `~/.opencode`
+- `~/.npm/_npx` (the Telegram bot runs from here)
+- `~/.cache/ms-playwright` (browser cache; expensive to re-download)
 - Files owned by other users
 
 ## Configuration
@@ -39,16 +42,20 @@ Never touched:
 | `PROJECT_TMP_AGE_DAYS` | 7 | Retention for `/tmp/opencode` entries |
 | `STALE_PRIVATE_AGE_DAYS` | 7 | Retention for `systemd-private-*` directories |
 | `JOURNAL_VACUUM_SIZE` / `JOURNAL_VACUUM_AGE` | 50M / 14d | journald vacuum thresholds |
-| `USER_CACHES` | `pip go-build node` | Directory names under `~/.cache/` to clear |
+| `USER_CACHES` | `pip go-build node uv pnpm` | Directory names under `~/.cache/` to clear |
+| `USER_CACHE_PATHS` | `.npm/_cacache` | Additional paths to clear, relative to `$HOME` or absolute; space-separated |
 | `APT_CLEAN` | `yes` | Run `apt-get clean` |
 | `DRY_RUN` | `0` | Set to `1` to report without deleting |
 
-`USER_CACHES` values are literal directory names under `~/.cache/`. Adjust them to match the runtimes you actually use (for example `uv` or `pnpm`).
+`USER_CACHES` values are literal directory names under `~/.cache/`. `USER_CACHE_PATHS` entries are relative to `$HOME` unless they start with `/`. Adjust them to match the runtimes you actually use. `~/.npm/_npx` and `~/.cache/ms-playwright` are deliberately excluded by default.
 
-After changing the configuration:
+Precedence: built-in defaults < `/etc/default/container-tidy` < environment variables < command line (`--dry-run`). The scripts read the file on every run, so changes take effect on the next run; only timer schedule changes require a restart.
+
+Preview without deleting anything:
 
 ```bash
-sudo systemctl restart container-tidy.timer container-tidy-boot.timer
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
+sudo /usr/local/bin/container-tidy-root.sh --dry-run
 ```
 
 ## Commands

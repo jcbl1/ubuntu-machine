@@ -21,12 +21,15 @@
 | journald | vacuum 至 50M / 14d | root |
 | `/var/cache/apt`（不动 `/var/lib/apt/lists`） | — | root |
 | `USER_CACHES` 中列出的 `~/.cache/` 子目录 | — | 普通用户 |
+| `USER_CACHE_PATHS` 中列出的路径（相对 `$HOME` 或绝对路径） | — | 普通用户 |
 
 永不触碰：
 
 - `/Users`（宿主机绑定挂载）
 - `~/.local/share/opencode/`（会话数据库）
 - `~/go`、`~/.rustup`、`~/.opencode`
+- `~/.npm/_npx`（Telegram bot 从这里运行）
+- `~/.cache/ms-playwright`（浏览器缓存，重下成本高）
 - 其他用户属主的文件
 
 ## 配置
@@ -39,16 +42,20 @@
 | `PROJECT_TMP_AGE_DAYS` | 7 | `/tmp/opencode` 子项保留天数 |
 | `STALE_PRIVATE_AGE_DAYS` | 7 | `systemd-private-*` 目录保留天数 |
 | `JOURNAL_VACUUM_SIZE` / `JOURNAL_VACUUM_AGE` | 50M / 14d | journald vacuum 阈值 |
-| `USER_CACHES` | `pip go-build node` | 要清空的 `~/.cache/` 子目录名 |
+| `USER_CACHES` | `pip go-build node uv pnpm` | 要清空的 `~/.cache/` 子目录名 |
+| `USER_CACHE_PATHS` | `.npm/_cacache` | 额外清理路径（相对 `$HOME` 或绝对路径，空格分隔） |
 | `APT_CLEAN` | `yes` | 是否执行 `apt-get clean` |
 | `DRY_RUN` | `0` | 设为 `1` 时只报告不删除 |
 
-`USER_CACHES` 的值是 `~/.cache/` 下的目录名，应按实际使用的运行时调整（例如 `uv`、`pnpm`）。
+`USER_CACHES` 的值是 `~/.cache/` 下的目录名；`USER_CACHE_PATHS` 的值以 `/` 开头时按绝对路径处理，否则相对 `$HOME`。按实际使用的运行时调整。`~/.npm/_npx` 与 `~/.cache/ms-playwright` 默认不清理。
 
-修改配置后：
+优先级：内置默认 < `/etc/default/container-tidy` < 环境变量 < 命令行（`--dry-run`）。脚本每次运行都会读取配置文件，修改后下次运行自动生效；只有调整 timer 调度才需要 restart。
+
+手动预览（不删除任何东西）：
 
 ```bash
-sudo systemctl restart container-tidy.timer container-tidy-boot.timer
+sudo -u <user> /usr/local/bin/container-tidy-user.sh --dry-run
+sudo /usr/local/bin/container-tidy-root.sh --dry-run
 ```
 
 ## 常用命令
