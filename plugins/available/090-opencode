@@ -4,10 +4,11 @@
 # 部署 ~/.config/opencode/ 下的 opencode.jsonc、cli.json 与
 # opencode-notifier.json，均为 OpenCode V2 原生格式：
 #   - opencode.jsonc: websearch + permissions 数组 + mcp.servers 服务器
-#     （reactive-resume / anymd / notion / excalidraw / n8n，playwright
-#     保留注释）+ notifier 插件。V2 使用 mcp.servers 与 disabled，不使用
-#     V1 的 mcp.<name> / enabled。mcp 命令里的 nvm-exec 路径随 TARGET_HOME
-#     变化，用占位符注入后再 sed 替换；n8n 的 cwd 指向宿主 n8n-workflows 项目。
+#     （reactive-resume / filecodebox / anymd / drawio / notion / excalidraw /
+#     n8n，playwright 保留注释）+ notifier 插件。V2 使用 mcp.servers 与
+#     disabled，不使用 V1 的 mcp.<name> / enabled。mcp 命令里的 nvm-exec 路径
+#     随 TARGET_HOME 变化，用占位符注入后再 sed 替换；n8n 的 cwd 指向宿主
+#     n8n-workflows 项目。MCP 统一使用 Node 24（由 100-nvm 安装为默认版本）。
 #   - cli.json: 终端层 UI 配置，禁用内置 opencode.notifications，避免与
 #     notifier 重复提醒；session.permissions 保留 TUI 的权限询问行为。
 # notifier 插件（@mohak34/opencode-notifier）单包同时支持 V1/V2：V2 下由
@@ -55,11 +56,27 @@ cat > "$jsonc_tmp" <<'OCJSONC'
         },
         "disabled": true
       },
+      "filecodebox_with_12MB_size_cap": {
+        "type": "remote",
+        "url": "https://filebox.yelr.de/mcp",
+        "disabled": true
+      },
       "anymd": {
         "type": "local",
-        "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@sylphx/anymd"],
+        "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@sylphx/anymd@latest"],
         "environment": {
-          "NODE_VERSION": "22"
+          "NODE_VERSION": "24"
+        },
+        "disabled": true
+      },
+      "drawio": {
+        "type": "local",
+        "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "@next-ai-drawio/mcp-server@latest"],
+        "environment": {
+          "NODE_VERSION": "24"
+        },
+        "timeout": {
+          "startup": 180000
         },
         "disabled": true
       },
@@ -89,7 +106,7 @@ cat > "$jsonc_tmp" <<'OCJSONC'
         "command": ["__TARGET_HOME__/.nvm/nvm-exec", "npx", "-y", "n8n-mcp"],
         "cwd": "/Users/jcbl1/Developer/github.com/jcbl1/n8n-workflows",
         "environment": {
-          "NODE_VERSION": "22",
+          "NODE_VERSION": "24",
           "MCP_MODE": "stdio",
           "LOG_LEVEL": "error",
           "DISABLE_CONSOLE_OUTPUT": "true"
@@ -121,7 +138,8 @@ cat > "$TARGET_HOME/.config/opencode/cli.json" <<'OCCLI'
     "sidebar": "auto",
     "scrollbar": false,
     "thinking": "hide",
-    "permissions": "prompt"
+    "permissions": "prompt",
+    "verbosity": "low"
   },
   "animations": true
 }
