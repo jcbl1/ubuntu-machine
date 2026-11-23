@@ -10,7 +10,6 @@
 #
 # Env knobs:
 #   CODEX_INSTALL_DIR     binary install dir (default /usr/local/bin so it is on PATH)
-#   CODEX_RELEASE         version to install (default latest)
 
 set -euo pipefail
 

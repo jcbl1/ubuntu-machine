@@ -1,8 +1,9 @@
 #!/bin/bash
 # 045-proxychains - proxychains4 + 指向宿主机代理的配置
 #
-# proxychains4 让单条命令走宿主代理（例：proxychains4 -q npx ...），
-# 160-opencode-telegram-bot 的启动器即依赖它。
+# proxychains4 让单条命令走宿主代理（例：proxychains4 -q npx ...）。
+# 注意：160-opencode-telegram-bot 不使用 proxychains，改用 bot 自带的
+# TELEGRAM_PROXY_URL，避免把发往 127.0.0.1 的 API 请求也走代理。
 #
 # 写入 /etc/proxychains4.conf：开启 strict_chain 与 proxy_dns，[ProxyList]
 # 指向宿主代理。默认 192.168.64.1:20121，与 all-in-one.zsh 的 pc 别名默认值
