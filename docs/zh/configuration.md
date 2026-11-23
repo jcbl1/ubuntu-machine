@@ -36,6 +36,7 @@
 | `PROXY_HOST`、`PROXY_PORT` | `045-proxychains`、zsh `pc` 别名 | 宿主机代理地址；默认 `192.168.64.1:20121` |
 | `UV_VERSION` | `155-uv` | 安装指定 uv 版本，而不是 latest |
 | `YAZI_VERSION` | `060-yazi` | 固定 yazi release tag，而不是 latest |
+| `YAZI_NOOP_PATHS` | `060-yazi` | 禁用 MIME 探测、预览与预加载的路径 glob 列表（空格分隔；默认 `/Users/<user>/Documents/sync/cloudreve/**`，留空则禁用） |
 | `INSTALL_TAURI_CLI` | `110-rust` | 设为 `0` 可跳过耗时的 tauri-cli 编译 |
 | `TELEGRAM_BOT_NODE_VERSION` | `160-opencode-telegram-bot` | bot 使用的 Node 版本（默认 `v22.23.2`） |
 | `SWAPFILE_SIZE` | `170-swapfile` | container machine 的 swapfile 大小（默认 `4G`，如 `512M`、`8G`） |

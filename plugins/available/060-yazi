@@ -7,6 +7,14 @@
 # 依赖 unzip 与 file（030-cli-tools 提供）。file 用于文件类型检测，是 yazi 的必需前置。
 # 重跑会更新到最新 release（幂等且保鲜）；需要钉版本时设 YAZI_VERSION（tag 名）。
 #
+# 可用环境变量：
+#   YAZI_VERSION      钉住 release tag（默认 latest）
+#   YAZI_NOOP_PATHS   noop 路径 glob 列表（空格分隔）。命中这些路径时禁用 MIME
+#                     探测、预览与预加载，避免浏览 rclone/virtiofs 等远程目录时
+#                     触发文件读取或下载。默认
+#                     /Users/<user>/Documents/sync/cloudreve/**；设为空字符串
+#                     可完全不生成 [plugin] 段。
+#
 # 运行期由 run-plugins 注入 TARGET_USER；构建期无用户则整体跳过。
 
 set -euo pipefail
@@ -58,13 +66,53 @@ install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$tmp"/yazi-*/yazi "$TARGET_
 install -m 755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$tmp"/yazi-*/ya   "$TARGET_HOME/.local/bin/ya"
 
 # ---- ~/.config/yazi/yazi.toml ----
-cat > "$TARGET_HOME/.config/yazi/yazi.toml" <<'YAZITOML'
-[mgr]
-show_hidden = false
-sort_by = "natural"
-sort_dir_first = false
-YAZITOML
+# YAZI_NOOP_PATHS 按空格拆分；显式设为空字符串时不生成 [plugin] 段。
+noop_paths_raw="${YAZI_NOOP_PATHS-/Users/$TARGET_USER/Documents/sync/cloudreve/**}"
+noop_paths=()
+if [[ -n "$noop_paths_raw" ]]; then
+  read -r -a noop_paths <<< "$noop_paths_raw"
+fi
+
+for p in "${noop_paths[@]}"; do
+  if [[ "$p" == *'"'* ]]; then
+    echo "060-yazi: YAZI_NOOP_PATHS 中的路径不能包含双引号: $p" >&2
+    exit 1
+  fi
+done
+
+noop_array() {
+  local key="$1" extra="${2:-}" p
+  printf '%s = [\n' "$key"
+  for p in "${noop_paths[@]}"; do
+    printf '\t{ url = "%s", run = "noop"%s },\n' "$p" "$extra"
+  done
+  printf ']\n'
+}
+
+{
+  printf '%s\n' \
+    '[mgr]' \
+    'show_hidden = false' \
+    'sort_by = "natural"' \
+    'sort_dir_first = false'
+
+  if [[ ${#noop_paths[@]} -gt 0 ]]; then
+    printf '\n[plugin]\n'
+    printf '%s\n' \
+      '# 命中下列路径时禁用文件内容读取，避免对 rclone/远程挂载触发下载；' \
+      '# 代价是这些路径下失去 MIME 类型判别。' \
+      '# 1) 禁用 MIME 探测（默认会对每个文件执行 `file -bL --mime-type`，会读文件头）'
+    noop_array prepend_fetchers ', group = "mime"'
+    printf '%s\n' \
+      '# 2) 禁用预览器（code/image/video/pdf/archive/file 等）'
+    noop_array prepend_previewers
+    printf '%s\n' \
+      '# 3) 禁用预加载/缩略图缓存（image/video/pdf/font 等）'
+    noop_array prepend_preloaders
+  fi
+} > "$TARGET_HOME/.config/yazi/yazi.toml"
 chown "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.config/yazi/yazi.toml"
 
+# ---- 输出安装结果 ----
 "$TARGET_HOME/.local/bin/yazi" --version
 echo "060-yazi: 完成（用户 $TARGET_USER）"

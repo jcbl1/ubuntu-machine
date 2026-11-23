@@ -36,6 +36,7 @@ The following are runtime state (not fully managed by the plugin):
 | `PROXY_HOST`, `PROXY_PORT` | `045-proxychains`, zsh `pc` alias | Host proxy address; default `192.168.64.1:20121` |
 | `UV_VERSION` | `155-uv` | Install a specific uv version instead of latest |
 | `YAZI_VERSION` | `060-yazi` | Pin a yazi release tag instead of latest |
+| `YAZI_NOOP_PATHS` | `060-yazi` | Space-separated path globs that disable MIME detection, previews, and preloading (default `/Users/<user>/Documents/sync/cloudreve/**`; empty disables) |
 | `INSTALL_TAURI_CLI` | `110-rust` | Set to `0` to skip the slow tauri-cli build |
 | `TELEGRAM_BOT_NODE_VERSION` | `160-opencode-telegram-bot` | Node version used by the bot (default `v22.23.2`) |
 | `SWAPFILE_SIZE` | `170-swapfile` | Swapfile size for a container machine (default `4G`; e.g. `512M`, `8G`) |
