@@ -2,5 +2,8 @@ plugins/enabled/*
 !plugins/enabled/.gitkeep
 plugins/private/
 
+# local plugin settings
+/.env
+
 NOTES.md
 NOTES.*.md

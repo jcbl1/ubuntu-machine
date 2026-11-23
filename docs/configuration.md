@@ -29,7 +29,27 @@ The following are runtime state (not fully managed by the plugin):
 - session data under `~/.local/share/opencode/`
 - notifier state files
 
+## Plugin config file
+
+Runtime plugin settings live in `.env` at the repository root. It is ignored by git and excluded from the Docker build context, so it never enters the image.
+
+```bash
+cp .env.example .env
+$EDITOR .env
+```
+
+`run-plugins` reads `.env` by default at runtime; pass `--env-file FILE` to use another file. Build-time runs do not read it.
+
+- Format: `KEY=value`, optional `export`, whole-line `#` comments, and single/double quotes for values containing spaces
+- List values are space-separated strings (for example `YAZI_NOOP_PATHS`)
+- An empty value disables the setting (`YAZI_NOOP_PATHS=`)
+- Environment variables take precedence; the file only fills unset variables
+- The file is parsed, not sourced, so values cannot execute code
+- Secrets belong in `plugins/private/`, not here
+
 ## Environment variables
+
+The settings below can be set in `.env` or exported as environment variables. Environment variables win over `.env`.
 
 | Variable | Used by | Effect |
 |---|---|---|
@@ -52,6 +72,7 @@ The following are runtime state (not fully managed by the plugin):
 
 - `plugins/enabled/` — local symlinks that select which plugins run
 - `plugins/private/` — local secrets
+- `.env` — local plugin settings
 - `NOTES.md`, `NOTES.*.md` — local implementation notes
 
 ## Related documents

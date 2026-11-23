@@ -7,11 +7,17 @@
 # 运行期（容器创建后执行一次，完成用户级初始化）:
 #   sudo bash plugins/bin/run-plugins [--proxy URL] [--dry-run]
 #                                     [--enabled DIR] [--target-user USER]
+#                                     [--env-file FILE]
 #
 #   --proxy URL        为插件导出代理（http_proxy/https_proxy/all_proxy），
 #                      供 GitHub 等下载使用，如 --proxy http://192.168.64.1:20121
 #   --target-user USER 用户级配置的目标用户
 #   --dry-run          只列出将要执行的插件，不实际运行
+#   --env-file FILE    读取 dotenv 配置（默认仓库根目录 .env；不存在则跳过）
+#
+# .env 只补充尚未设置的环境变量，因此环境变量优先于文件；运行期从仓库布局
+# 执行时才会读取默认路径，构建期（/usr/local/sbin）不读取。格式为
+# KEY=value，支持整行 # 注释与单/双引号，列表使用空格分隔的字符串。
 #
 # 插件契约（contract）:
 #   - plain bash script, executed with "bash" in lexicographic filename order
@@ -39,13 +45,70 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
+}
+
+# 解析 dotenv 文件：只补充尚未设置的变量，不执行文件内容。
+load_env_file() {
+  local file="$1" line key val quote lineno=0 applied=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lineno=$((lineno + 1))
+    line="${line%$'\r'}"
+    if [[ $lineno -eq 1 ]]; then
+      line="${line#$'\xEF\xBB\xBF'}"
+    fi
+
+    # 去掉行首与行尾空白
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    [[ -z "$line" || "$line" == \#* ]] && continue
+
+    # 允许可选的 export 前缀
+    if [[ "$line" =~ ^export[[:space:]]+(.*)$ ]]; then
+      line="${BASH_REMATCH[1]}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+
+    if [[ ! "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+      echo "run-plugins: $file:$lineno: 无法解析的行: $line" >&2
+      exit 2
+    fi
+
+    key="${BASH_REMATCH[1]}"
+    val="${BASH_REMATCH[2]}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+
+    # 去掉成对的单/双引号（不处理转义）
+    if [[ "$val" == \"* ]] || [[ "$val" == \'* ]]; then
+      quote="${val:0:1}"
+      if [[ ${#val} -lt 2 || "${val: -1}" != "$quote" ]]; then
+        echo "run-plugins: $file:$lineno: 引号未闭合: $line" >&2
+        exit 2
+      fi
+      val="${val:1:${#val}-2}"
+    fi
+
+    # 环境变量优先：只补未设置的变量（显式空值也算已设置）
+    if [[ -v "$key" ]]; then
+      continue
+    fi
+
+    export "$key=$val"
+    applied=$((applied + 1))
+  done < "$file"
+
+  echo ">>> run-plugins: env-file=$file (applied $applied)"
 }
 
 proxy=""
 target_user_arg=""
 enabled_arg=""
+env_file_arg=""
+env_file_set=0
 dry_run=0
 positional=()
 
@@ -57,12 +120,19 @@ while [[ $# -gt 0 ]]; do
     --target-user=*) target_user_arg="${1#*=}"; shift ;;
     --enabled)       enabled_arg="$2"; shift 2 ;;
     --enabled=*)     enabled_arg="${1#*=}"; shift ;;
+    --env-file)      env_file_arg="$2"; env_file_set=1; shift 2 ;;
+    --env-file=*)    env_file_arg="${1#*=}"; env_file_set=1; shift ;;
     --dry-run)       dry_run=1; shift ;;
     -h|--help)       usage ;;
     --*)             echo "run-plugins: 未知选项: $1" >&2; exit 2 ;;
     *)               positional+=("$1"); shift ;;
   esac
 done
+
+if [[ $env_file_set -eq 1 && -z "$env_file_arg" ]]; then
+  echo "run-plugins: --env-file 需要非空路径" >&2
+  exit 2
+fi
 
 if [[ ${#positional[@]} -gt 1 ]]; then
   echo "run-plugins: 最多一个位置参数（enabled 目录）" >&2
@@ -94,6 +164,23 @@ export TARGET_USER="$target_user"
 plugins_dir="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [[ -d "$plugins_dir/available" && -d "$plugins_dir/bin" ]]; then
   export PLUGIN_ROOT="$plugins_dir"
+fi
+
+# 环境文件：显式 --env-file，或仓库根目录 .env（仅运行期仓库布局）
+env_file=""
+if [[ $env_file_set -eq 1 ]]; then
+  env_file="$env_file_arg"
+  if [[ ! -f "$env_file" ]]; then
+    echo "run-plugins: --env-file 不存在或不是常规文件: $env_file" >&2
+    exit 2
+  fi
+elif [[ -n "${PLUGIN_ROOT:-}" ]]; then
+  env_file="$(dirname "$PLUGIN_ROOT")/.env"
+  [[ -f "$env_file" ]] || env_file=""
+fi
+
+if [[ -n "$env_file" ]]; then
+  load_env_file "$env_file"
 fi
 
 if [[ -n "$proxy" ]]; then

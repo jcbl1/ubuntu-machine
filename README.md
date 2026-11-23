@@ -54,6 +54,8 @@ container build -t local/ubuntu-machine:latest .
 
 ```text
 .
+├── .env                  # local plugin settings, not tracked
+├── .env.example          # template
 ├── Dockerfile
 ├── plugins/
 │   ├── bin/run-plugins

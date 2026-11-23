@@ -7,6 +7,8 @@
 ## 目录结构
 
 ```text
+.env                       # 本地插件配置（不入库）
+.env.example               # 配置模板
 plugins/
 ├── bin/run-plugins        # 构建期/运行期共用的执行器
 ├── available/             # 所有插件
@@ -14,7 +16,7 @@ plugins/
 └── private/               # 本地私密文件，由 080-private 落位
 ```
 
-`plugins/enabled/` 与 `plugins/private/` 被 git 忽略。
+`.env`、`plugins/enabled/` 与 `plugins/private/` 被 git 忽略。
 
 ## 启用 / 禁用
 
@@ -53,9 +55,12 @@ sudo bash plugins/bin/run-plugins --proxy URL        # 导出 http(s)_proxy/all_
 sudo bash plugins/bin/run-plugins --dry-run          # 只列出，不执行
 sudo bash plugins/bin/run-plugins --enabled DIR      # 使用其他 enabled 目录
 sudo bash plugins/bin/run-plugins --target-user USER # 指定目标用户
+sudo bash plugins/bin/run-plugins --env-file FILE    # 使用其他 dotenv 文件
 ```
 
 `TARGET_USER` 解析顺序：`--target-user`、`$TARGET_USER`、`$SUDO_USER`、首个 HOME 在 `/home/` 下的非 root 用户。任一插件失败时执行器返回非零。
+
+运行期如果仓库根目录存在 `.env`，执行器会自动加载（见[配置](configuration.md)）。
 
 ## 只执行部分插件
 

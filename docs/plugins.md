@@ -7,6 +7,8 @@ The image ships the runner (`/usr/local/sbin/run-plugins`); plugin scripts stay 
 ## Layout
 
 ```text
+.env                       # local plugin settings (not tracked)
+.env.example               # template
 plugins/
 ├── bin/run-plugins        # shared runner (build time and runtime)
 ├── available/             # all plugins
@@ -14,7 +16,7 @@ plugins/
 └── private/               # local secrets, provisioned by 080-private
 ```
 
-`plugins/enabled/` and `plugins/private/` are ignored by git.
+`.env`, `plugins/enabled/`, and `plugins/private/` are ignored by git.
 
 ## Enable or disable a plugin
 
@@ -53,9 +55,12 @@ sudo bash plugins/bin/run-plugins --proxy URL        # export http(s)_proxy/all_
 sudo bash plugins/bin/run-plugins --dry-run          # list plugins without running
 sudo bash plugins/bin/run-plugins --enabled DIR      # use another enabled directory
 sudo bash plugins/bin/run-plugins --target-user USER # set the target user
+sudo bash plugins/bin/run-plugins --env-file FILE    # use another dotenv file
 ```
 
 `TARGET_USER` resolution order: `--target-user`, `$TARGET_USER`, `$SUDO_USER`, then the first non-root user whose home is under `/home/`. The runner exits non-zero if any plugin fails.
+
+At runtime the runner also loads the repository-root `.env` if present (see [Configuration](configuration.md)).
 
 ## Run a subset
 

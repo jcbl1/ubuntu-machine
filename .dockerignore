@@ -1,4 +1,5 @@
 .git
 plugins/private
+/.env
 NOTES.md
 NOTES.*.md
